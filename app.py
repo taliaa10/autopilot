@@ -63,7 +63,7 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
             "model": model,
             "prompt": prompt,
             "size": "1080x1920",
-            "seconds": int(duration),  # param is "seconds" not "duration"
+            "seconds": str(duration),  # must be string: "4", "8", or "12"
         }
         push_log(job_id, "POST /v1/videos ...", "info")
         resp = requests.post(
@@ -312,7 +312,7 @@ select option{background:#16162a}
     </div>
     <div class="row2">
       <div class="field"><label>Model</label><select id="model"><option value="sora-2">sora-2 (fast)</option><option value="sora-2-pro">sora-2-pro</option></select></div>
-      <div class="field"><label>Duration</label><select id="duration"><option value="5">5 sec</option><option value="10" selected>10 sec</option><option value="16">16 sec</option><option value="20">20 sec</option></select></div>
+      <div class="field"><label>Duration</label><select id="duration"><option value="4">4 sec</option><option value="8" selected>8 sec</option><option value="12">12 sec</option></select></div>
     </div>
   </div>
   <div class="card">
