@@ -58,30 +58,71 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
             "Content-Type": "application/json",
         }
 
+        # Submit generation job
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "size": "1080x1920",
+            "n": 1,
+            "duration": int(duration),
+        }
+        push_log(job_id, f"POST /v1/videos/generations ...", "info")
         resp = requests.post(
             "https://api.openai.com/v1/videos/generations",
             headers=headers,
-            json={"model": model, "prompt": prompt, "size": "1080x1920", "n": 1, "duration": int(duration)},
-            timeout=30,
+            json=payload,
+            timeout=60,
         )
-        resp.raise_for_status()
+
+        # Log the raw response if it fails so we can see the exact error
+        if not resp.ok:
+            push_log(job_id, f"Sora API error {resp.status_code}: {resp.text[:300]}", "error")
+            raise RuntimeError(f"Sora API returned {resp.status_code}: {resp.text[:200]}")
+
         data = resp.json()
-        job_sora_id = data.get("id") or (data.get("data") or [{}])[0].get("id")
+        push_log(job_id, f"Response keys: {list(data.keys())}", "info")
+
+        # Handle both response shapes OpenAI has used
+        job_sora_id = (
+            data.get("id")
+            or data.get("generation_id")
+            or (data.get("data") or [{}])[0].get("id")
+        )
+        if not job_sora_id:
+            raise RuntimeError(f"Could not find job ID in response: {str(data)[:200]}")
+
         push_log(job_id, f"Job queued → id={job_sora_id}", "info")
 
         video_url = None
         for attempt in range(180):
             time.sleep(5)
-            poll = requests.get(f"https://api.openai.com/v1/videos/generations/{job_sora_id}", headers=headers, timeout=30)
-            poll.raise_for_status()
+            poll = requests.get(
+                f"https://api.openai.com/v1/videos/generations/{job_sora_id}",
+                headers=headers,
+                timeout=30,
+            )
+            if not poll.ok:
+                push_log(job_id, f"Poll error {poll.status_code}: {poll.text[:200]}", "error")
+                raise RuntimeError(f"Poll failed: {poll.status_code}")
+
             sd = poll.json()
             status = sd.get("status", "unknown")
-            push_log(job_id, f"Status: {status} (poll {attempt+1})", "info")
-            if status == "completed":
-                video_url = sd.get("url") or sd.get("video_url") or (sd.get("data") or [{}])[0].get("url")
+            if attempt % 6 == 0:  # Log every 30s instead of every 5s to reduce noise
+                push_log(job_id, f"Status: {status} ({attempt*5}s elapsed)", "info")
+
+            if status == "completed" or status == "succeeded":
+                # Try every known location for the video URL
+                video_url = (
+                    sd.get("url")
+                    or sd.get("video_url")
+                    or (sd.get("data") or [{}])[0].get("url")
+                    or (sd.get("generations") or [{}])[0].get("url")
+                )
+                push_log(job_id, f"Completed! url found: {bool(video_url)}", "success")
                 break
-            elif status in ("failed", "cancelled"):
-                raise RuntimeError(f"Sora job failed with status: {status}")
+            elif status in ("failed", "cancelled", "error"):
+                err_detail = sd.get("error") or sd.get("message") or str(sd)[:200]
+                raise RuntimeError(f"Sora job {status}: {err_detail}")
 
         push_log(job_id, "Video generated ✓", "success")
 
