@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#080810">
+<title>AUTOPILOT</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&family=JetBrains+Mono:ital,wght@0,300;0,400;1,300&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+:root {
+  --bg: #080810;
+  --s1: #10101c;
+  --s2: #16162a;
+  --border: rgba(255,255,255,0.07);
+  --border2: rgba(255,255,255,0.12);
+  --lime: #c8ff57;
+  --pink: #ff6bff;
+  --cyan: #57ffc4;
+  --red: #ff4d6a;
+  --text: #f0f0f8;
+  --muted: #555570;
+  --muted2: #888899;
+  --r: 14px;
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+html { height: 100%; background: var(--bg); }
+body {
+  min-height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  overscroll-behavior: none;
+}
+
+/* ── NOISE OVERLAY ── */
+body::after {
+  content:''; position:fixed; inset:0; pointer-events:none; z-index:9999;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)' opacity='0.035'/%3E%3C/svg%3E");
+  opacity: 0.5;
+}
+
+/* ── HEADER ── */
+header {
+  position: sticky; top: 0; z-index: 100;
+  padding: 16px 20px 14px;
+  padding-top: calc(16px + env(safe-area-inset-top, 0px));
+  background: rgba(8,8,16,0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+
+.logo {
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-weight: 800;
+  font-size: 1rem;
+  letter-spacing: 0.2em;
+  display: flex; align-items: center; gap: 10px;
+}
+.logo-pip {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 8px var(--lime);
+  animation: pip 2s ease-in-out infinite;
+}
+@keyframes pip {
+  0%,100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(0.6); }
+}
+
+.status-pill {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--s1);
+  font-size: 0.65rem;
+  letter-spacing: 0.1em;
+  color: var(--muted2);
+  text-transform: uppercase;
+  transition: all 0.3s;
+}
+.status-pip {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--muted);
+  transition: all 0.3s;
+}
+.status-pill.running { border-color: rgba(200,255,87,0.3); color: var(--lime); }
+.status-pill.running .status-pip { background: var(--lime); box-shadow: 0 0 6px var(--lime); animation: pip 0.8s infinite; }
+.status-pill.done { border-color: rgba(87,255,196,0.3); color: var(--cyan); }
+.status-pill.done .status-pip { background: var(--cyan); box-shadow: 0 0 6px var(--cyan); animation: none; }
+.status-pill.error { border-color: rgba(255,77,106,0.3); color: var(--red); }
+.status-pill.error .status-pip { background: var(--red); animation: none; }
+
+/* ── SCROLL CONTAINER ── */
+.scroll {
+  padding: 20px 16px;
+  padding-bottom: calc(100px + var(--safe-bottom));
+  display: flex; flex-direction: column; gap: 14px;
+  max-width: 560px; margin: 0 auto;
+}
+
+/* ── CARDS ── */
+.card {
+  background: var(--s1);
+  border: 1px solid var(--border);
+  border-radius: var(--r);
+  padding: 18px;
+  transition: border-color 0.2s;
+}
+
+.card-tag {
+  font-size: 0.6rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 14px;
+  display: flex; align-items: center; gap: 8px;
+}
+.card-tag::after { content:''; flex:1; height:1px; background: var(--border); }
+
+/* ── STEP BAR ── */
+.stepbar {
+  display: flex; gap: 6px; margin-bottom: 14px;
+}
+.stepbar-item {
+  flex: 1; height: 3px; border-radius: 2px;
+  background: var(--s2);
+  transition: background 0.4s;
+  position: relative;
+  overflow: hidden;
+}
+.stepbar-item.active {
+  background: var(--border2);
+}
+.stepbar-item.active::after {
+  content: '';
+  position: absolute; top: 0; left: -100%;
+  width: 100%; height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(200,255,87,0.6), transparent);
+  animation: shimmer 1.2s infinite;
+}
+@keyframes shimmer { to { left: 100%; } }
+.stepbar-item.done { background: var(--lime); }
+
+.step-labels {
+  display: flex; gap: 6px; margin-bottom: 16px;
+}
+.step-label {
+  flex: 1;
+  font-size: 0.58rem;
+  text-align: center;
+  color: var(--muted);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  transition: color 0.3s;
+}
+.step-label.active { color: var(--lime); }
+.step-label.done { color: var(--cyan); }
+
+/* ── LOG ── */
+.log {
+  background: #05050d;
+  border-radius: 10px;
+  padding: 12px;
+  height: 160px;
+  overflow-y: auto;
+  font-size: 0.72rem;
+  line-height: 1.75;
+  color: var(--muted2);
+  -webkit-overflow-scrolling: touch;
+}
+.log::-webkit-scrollbar { width: 3px; }
+.log::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+.log-line { display: block; }
+.log-line.step { color: var(--text); font-style: normal; }
+.log-line.success, .log-line.done { color: var(--cyan); }
+.log-line.error { color: var(--red); }
+.log-line.accent { color: var(--lime); }
+.log-line.info { color: var(--muted2); font-style: italic; }
+
+/* ── FORM ELEMENTS ── */
+.field { margin-bottom: 14px; }
+.field:last-child { margin-bottom: 0; }
+
+.field-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 7px;
+}
+label {
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted2);
+}
+.counter {
+  font-size: 0.6rem;
+  color: var(--muted);
+  transition: color 0.2s;
+}
+.counter.warn { color: #ffb347; }
+.counter.over { color: var(--red); }
+
+textarea, input[type=text], select {
+  width: 100%;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.82rem;
+  padding: 12px 14px;
+  outline: none;
+  resize: none;
+  -webkit-appearance: none;
+  appearance: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+textarea { line-height: 1.5; }
+textarea:focus, input:focus, select:focus {
+  border-color: rgba(200,255,87,0.3);
+  box-shadow: 0 0 0 3px rgba(200,255,87,0.06);
+}
+select { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' fill='none'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23555570' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 32px; }
+select option { background: #16162a; }
+
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* ── HASHTAG CHIPS ── */
+.chip-area {
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px;
+  display: flex; flex-wrap: wrap; gap: 6px;
+  min-height: 46px;
+  cursor: text;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+.chip-area:focus-within {
+  border-color: rgba(200,255,87,0.3);
+  box-shadow: 0 0 0 3px rgba(200,255,87,0.06);
+}
+.chip {
+  display: flex; align-items: center; gap: 4px;
+  background: rgba(200,255,87,0.08);
+  border: 1px solid rgba(200,255,87,0.2);
+  border-radius: 6px;
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  color: var(--lime);
+  animation: chipIn 0.15s ease;
+  white-space: nowrap;
+}
+@keyframes chipIn { from { opacity:0; transform:scale(0.8); } to { opacity:1; transform:scale(1); } }
+.chip-x {
+  background: none; border: none; color: var(--lime); opacity: 0.5;
+  font-size: 0.65rem; cursor: pointer; padding: 0; line-height: 1;
+  transition: opacity 0.15s;
+}
+.chip-x:hover { opacity: 1; }
+.chip-input {
+  background: none; border: none; color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.8rem; outline: none;
+  min-width: 80px; flex: 1; padding: 3px 4px;
+}
+
+/* ── TOGGLE ── */
+.toggle-row {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--s2);
+  border-radius: 10px;
+  margin-bottom: 10px;
+}
+.toggle-row:last-of-type { margin-bottom: 14px; }
+.tl { font-size: 0.8rem; }
+.ts { font-size: 0.65rem; color: var(--muted2); margin-top: 2px; }
+.switch { position: relative; width: 42px; height: 24px; flex-shrink: 0; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.sw-track {
+  position: absolute; inset: 0;
+  background: var(--s1); border: 1px solid var(--border2);
+  border-radius: 12px; cursor: pointer; transition: 0.2s;
+}
+.sw-track::before {
+  content: ''; position: absolute;
+  width: 16px; height: 16px;
+  left: 3px; top: 3px;
+  background: var(--muted); border-radius: 50%;
+  transition: 0.2s;
+}
+.switch input:checked + .sw-track { background: rgba(200,255,87,0.12); border-color: rgba(200,255,87,0.35); }
+.switch input:checked + .sw-track::before { transform: translateX(18px); background: var(--lime); }
+
+/* ── PRESETS ── */
+.preset-list { display: flex; flex-direction: column; gap: 8px; }
+.preset-item {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 14px;
+  background: var(--s2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color 0.2s;
+  -webkit-tap-highlight-color: rgba(200,255,87,0.1);
+}
+.preset-item:active { background: rgba(200,255,87,0.05); }
+.preset-item.loaded { border-color: rgba(200,255,87,0.35); }
+.pi-icon { font-size: 1rem; flex-shrink: 0; }
+.pi-body { flex: 1; min-width: 0; }
+.pi-name { font-size: 0.8rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pi-tags { font-size: 0.62rem; color: var(--muted2); margin-top: 2px; }
+.pi-del { background: none; border: none; color: var(--muted); font-size: 0.8rem; cursor: pointer; padding: 4px; }
+
+.add-preset {
+  width: 100%; padding: 11px;
+  background: none; border: 1px dashed var(--border);
+  border-radius: 10px; color: var(--muted2);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 0.75rem; cursor: pointer;
+  transition: border-color 0.2s, color 0.2s;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.add-preset:active { border-color: rgba(200,255,87,0.3); color: var(--lime); }
+
+/* ── BOTTOM RUN BAR ── */
+.run-bar {
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 100;
+  padding: 12px 16px;
+  padding-bottom: calc(12px + var(--safe-bottom));
+  background: rgba(8,8,16,0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-top: 1px solid var(--border);
+  max-width: 560px; margin: 0 auto;
+  /* Override margin for fixed */
+  left: 50%; transform: translateX(-50%);
+  width: 100%;
+}
+
+.run-btn {
+  width: 100%; padding: 16px;
+  background: var(--lime);
+  color: #080810;
+  border: none; border-radius: 12px;
+  font-family: 'Bricolage Grotesque', sans-serif;
+  font-weight: 800;
+  font-size: 0.9rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  cursor: pointer;
+  position: relative; overflow: hidden;
+  transition: transform 0.15s, box-shadow 0.2s, opacity 0.2s, background 0.3s;
+  -webkit-tap-highlight-color: transparent;
+}
+.run-btn::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, transparent 60%);
+  pointer-events: none;
+}
+.run-btn:active:not(:disabled) { transform: scale(0.97); }
+.run-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.run-btn.running {
+  background: var(--s2);
+  color: var(--muted2);
+  border: 1px solid var(--border2);
+  box-shadow: none;
+}
+.run-btn.success-state {
+  background: var(--cyan);
+}
+
+/* ── EMPTY STATE ── */
+.empty {
+  font-size: 0.72rem; color: var(--muted);
+  padding: 8px 4px; font-style: italic;
+}
+
+/* ── TOAST ── */
+.toast {
+  position: fixed; top: 80px; left: 50%; transform: translateX(-50%);
+  background: var(--s2); border: 1px solid var(--border2);
+  border-radius: 10px; padding: 10px 18px;
+  font-size: 0.75rem; color: var(--text);
+  white-space: nowrap; z-index: 9998;
+  animation: toastIn 0.25s ease, toastOut 0.25s ease 2s forwards;
+  pointer-events: none;
+}
+@keyframes toastIn { from { opacity:0; transform:translateX(-50%) translateY(-8px); } to { opacity:1; transform:translateX(-50%) translateY(0); } }
+@keyframes toastOut { to { opacity:0; transform:translateX(-50%) translateY(-8px); } }
+
+/* ── PAGE LOAD ANIMATION ── */
+.card { animation: fadeUp 0.4s ease both; }
+.card:nth-child(1) { animation-delay: 0.05s; }
+.card:nth-child(2) { animation-delay: 0.1s; }
+.card:nth-child(3) { animation-delay: 0.15s; }
+.card:nth-child(4) { animation-delay: 0.2s; }
+.card:nth-child(5) { animation-delay: 0.25s; }
+@keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo"><span class="logo-pip"></span> AUTOPILOT</div>
+  <div class="status-pill" id="statusPill">
+    <span class="status-pip"></span>
+    <span id="statusText">idle</span>
+  </div>
+</header>
+
+<div class="scroll">
+
+  <!-- ── PIPELINE STATUS ── -->
+  <div class="card">
+    <div class="card-tag">Pipeline</div>
+    <div class="stepbar">
+      <div class="stepbar-item" id="sb1"></div>
+      <div class="stepbar-item" id="sb2"></div>
+      <div class="stepbar-item" id="sb3"></div>
+      <div class="stepbar-item" id="sb4"></div>
+    </div>
+    <div class="step-labels">
+      <div class="step-label" id="sl1">Generate</div>
+      <div class="step-label" id="sl2">Download</div>
+      <div class="step-label" id="sl3">Upload</div>
+      <div class="step-label" id="sl4">Post</div>
+    </div>
+    <div class="log" id="log">
+      <span class="log-line info">// waiting for run...</span>
+    </div>
+  </div>
+
+  <!-- ── SORA PROMPT ── -->
+  <div class="card">
+    <div class="card-tag">Sora Video Prompt</div>
+    <div class="field">
+      <div class="field-head">
+        <label>Prompt</label>
+        <span class="counter" id="pc">0/500</span>
+      </div>
+      <textarea id="prompt" rows="5" placeholder="Close-up macro of a sleek glass dropper bottle on marble, golden morning light, slow-motion droplet fall, cinematic beauty product style..."></textarea>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label>Model</label>
+        <select id="model">
+          <option value="sora-2">sora-2 (fast)</option>
+          <option value="sora-2-pro">sora-2-pro</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Duration</label>
+        <select id="duration">
+          <option value="5">5 sec</option>
+          <option value="10" selected>10 sec</option>
+          <option value="16">16 sec</option>
+          <option value="20">20 sec</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── TIKTOK SETTINGS ── -->
+  <div class="card">
+    <div class="card-tag">TikTok Post</div>
+    <div class="field">
+      <div class="field-head">
+        <label>Caption</label>
+        <span class="counter" id="cc">0/150</span>
+      </div>
+      <input type="text" id="caption" placeholder="The serum that changed my lash game 👁️✨">
+    </div>
+    <div class="field">
+      <label>Hashtags <span style="color:var(--muted);font-size:0.6rem;text-transform:none">(space or enter to add)</span></label>
+      <div class="chip-area" id="chipArea">
+        <input class="chip-input" id="chipInput" placeholder="#lashserum" inputmode="text" autocomplete="off" autocorrect="off">
+      </div>
+    </div>
+    <div class="field">
+      <label>Product ID <span style="color:var(--muted);font-size:0.6rem;text-transform:none">(optional)</span></label>
+      <input type="text" id="productId" placeholder="7123456789012345678" inputmode="numeric">
+    </div>
+  </div>
+
+  <!-- ── OPTIONS ── -->
+  <div class="card">
+    <div class="card-tag">Options</div>
+    <div class="toggle-row">
+      <div>
+        <div class="tl">Dry run</div>
+        <div class="ts">Generate video only, don't post</div>
+      </div>
+      <label class="switch"><input type="checkbox" id="dryRun"><span class="sw-track"></span></label>
+    </div>
+    <div class="toggle-row">
+      <div>
+        <div class="tl">Schedule daily</div>
+        <div class="ts">Run automatically every day</div>
+      </div>
+      <label class="switch"><input type="checkbox" id="scheduleOn" onchange="toggleSchedule()"><span class="sw-track"></span></label>
+    </div>
+    <div class="field" id="scheduleField" style="display:none;">
+      <label>Post time (24hr)</label>
+      <input type="text" id="scheduleTime" placeholder="09:00" maxlength="5">
+    </div>
+  </div>
+
+  <!-- ── PRESETS ── -->
+  <div class="card">
+    <div class="card-tag">Saved Presets</div>
+    <div class="preset-list" id="presetList"></div>
+    <button class="add-preset" onclick="savePreset()">+ Save current as preset</button>
+  </div>
+
+</div>
+
+<!-- ── BOTTOM RUN BAR ── -->
+<div class="run-bar">
+  <button class="run-btn" id="runBtn" onclick="runPipeline()">▶ Run Pipeline</button>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+let hashtags = [];
+let presets = [];
+let currentJobId = null;
+let isRunning = false;
+let schedulerInterval = null;
+
+// ── Init ───────────────────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', async () => {
+  setupChipInput();
+  document.getElementById('prompt').addEventListener('input', () => counter('prompt', 'pc', 500));
+  document.getElementById('caption').addEventListener('input', () => counter('caption', 'cc', 150));
+  await loadPresets();
+});
+
+// ── Counters ───────────────────────────────────────────────────────────────
+function counter(id, counterId, max) {
+  const len = document.getElementById(id).value.length;
+  const el = document.getElementById(counterId);
+  el.textContent = `${len}/${max}`;
+  el.className = 'counter' + (len > max ? ' over' : len > max * 0.8 ? ' warn' : '');
+}
+
+// ── Hashtag chips ──────────────────────────────────────────────────────────
+function setupChipInput() {
+  const area = document.getElementById('chipArea');
+  const inp = document.getElementById('chipInput');
+  area.addEventListener('click', () => inp.focus());
+  inp.addEventListener('keydown', e => {
+    if ((e.key === ' ' || e.key === 'Enter') && inp.value.trim()) {
+      e.preventDefault();
+      addChip(inp.value.trim()); inp.value = '';
+    } else if (e.key === 'Backspace' && !inp.value && hashtags.length) {
+      removeChip(hashtags.length - 1);
+    }
+  });
+}
+function addChip(tag) {
+  tag = tag.replace(/^#+/, '');
+  if (!tag || hashtags.includes(tag)) return;
+  hashtags.push(tag); renderChips();
+}
+function removeChip(i) { hashtags.splice(i, 1); renderChips(); }
+function renderChips() {
+  const area = document.getElementById('chipArea');
+  area.querySelectorAll('.chip').forEach(c => c.remove());
+  const inp = document.getElementById('chipInput');
+  hashtags.forEach((tag, i) => {
+    const chip = document.createElement('div');
+    chip.className = 'chip';
+    chip.innerHTML = `#${tag}<button class="chip-x" onclick="removeChip(${i})">✕</button>`;
+    area.insertBefore(chip, inp);
+  });
+}
+
+// ── Schedule toggle ────────────────────────────────────────────────────────
+function toggleSchedule() {
+  const on = document.getElementById('scheduleOn').checked;
+  document.getElementById('scheduleField').style.display = on ? 'block' : 'none';
+  if (!on && schedulerInterval) { clearInterval(schedulerInterval); schedulerInterval = null; }
+}
+
+// ── Presets ────────────────────────────────────────────────────────────────
+async function loadPresets() {
+  try {
+    const r = await fetch('/api/presets');
+    presets = await r.json();
+  } catch { presets = []; }
+  renderPresets();
+}
+function renderPresets() {
+  const list = document.getElementById('presetList');
+  list.innerHTML = '';
+  if (!presets.length) {
+    list.innerHTML = '<div class="empty">No presets yet. Fill in the form and save.</div>';
+    return;
+  }
+  presets.forEach((p, i) => {
+    const el = document.createElement('div');
+    el.className = 'preset-item';
+    el.innerHTML = `
+      <span class="pi-icon">✦</span>
+      <div class="pi-body">
+        <div class="pi-name">${p.name || p.prompt.substring(0,40)}</div>
+        <div class="pi-tags">${p.hashtags?.length ? '#' + p.hashtags.join(' #') : 'no hashtags'}</div>
+      </div>
+      <button class="pi-del" onclick="deletePreset(event,${i})">✕</button>
+    `;
+    el.addEventListener('click', e => { if (!e.target.closest('.pi-del')) loadPreset(i); });
+    list.appendChild(el);
+  });
+}
+async function savePreset() {
+  const prompt = document.getElementById('prompt').value.trim();
+  if (!prompt) { toast('Add a prompt first'); return; }
+  const preset = {
+    name: prompt.substring(0, 40) + (prompt.length > 40 ? '...' : ''),
+    prompt,
+    caption: document.getElementById('caption').value,
+    hashtags: [...hashtags],
+    productId: document.getElementById('productId').value,
+    model: document.getElementById('model').value,
+    duration: document.getElementById('duration').value,
+  };
+  await fetch('/api/presets', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify(preset) });
+  await loadPresets();
+  toast('Preset saved ✓');
+}
+function loadPreset(i) {
+  const p = presets[i];
+  document.getElementById('prompt').value = p.prompt || '';
+  document.getElementById('caption').value = p.caption || '';
+  document.getElementById('productId').value = p.productId || '';
+  document.getElementById('model').value = p.model || 'sora-2';
+  document.getElementById('duration').value = p.duration || '10';
+  hashtags = [...(p.hashtags || [])]; renderChips();
+  counter('prompt', 'pc', 500); counter('caption', 'cc', 150);
+  document.querySelectorAll('.preset-item').forEach((el, idx) => {
+    el.classList.toggle('loaded', idx === i);
+  });
+  toast('Preset loaded');
+}
+async function deletePreset(e, i) {
+  e.stopPropagation();
+  await fetch(`/api/presets/${i}`, { method: 'DELETE' });
+  await loadPresets();
+}
+
+// ── Steps ──────────────────────────────────────────────────────────────────
+function setStep(n) {
+  for (let i = 1; i <= 4; i++) {
+    const bar = document.getElementById(`sb${i}`);
+    const lbl = document.getElementById(`sl${i}`);
+    if (i < n) { bar.className = 'stepbar-item done'; lbl.className = 'step-label done'; }
+    else if (i === n) { bar.className = 'stepbar-item active'; lbl.className = 'step-label active'; }
+    else { bar.className = 'stepbar-item'; lbl.className = 'step-label'; }
+  }
+}
+function resetSteps() {
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById(`sb${i}`).className = 'stepbar-item';
+    document.getElementById(`sl${i}`).className = 'step-label';
+  }
+}
+function allDone() {
+  for (let i = 1; i <= 4; i++) {
+    document.getElementById(`sb${i}`).className = 'stepbar-item done';
+    document.getElementById(`sl${i}`).className = 'step-label done';
+  }
+}
+
+// ── Logging ────────────────────────────────────────────────────────────────
+function addLog(msg, level = 'info') {
+  const box = document.getElementById('log');
+  const line = document.createElement('span');
+  line.className = `log-line ${level}`;
+  const t = new Date().toLocaleTimeString('en-US', { hour12: false });
+  line.textContent = `[${t}] ${msg}`;
+  box.appendChild(document.createElement('br'));
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+function clearLog() {
+  document.getElementById('log').innerHTML = '';
+}
+
+// ── Status ─────────────────────────────────────────────────────────────────
+function setStatus(state, text) {
+  const pill = document.getElementById('statusPill');
+  pill.className = 'status-pill ' + state;
+  document.getElementById('statusText').textContent = text;
+}
+
+// ── Run pipeline ───────────────────────────────────────────────────────────
+async function runPipeline() {
+  if (isRunning) return;
+
+  const prompt = document.getElementById('prompt').value.trim();
+  const caption = document.getElementById('caption').value.trim();
+  if (!prompt) { toast('Enter a Sora prompt first'); return; }
+  if (!caption) { toast('Enter a TikTok caption first'); return; }
+
+  isRunning = true;
+  clearLog();
+  resetSteps();
+  setStatus('running', 'running');
+
+  const btn = document.getElementById('runBtn');
+  btn.textContent = '⏳ Running...';
+  btn.classList.add('running');
+  btn.disabled = true;
+
+  const body = {
+    prompt,
+    caption,
+    hashtags: [...hashtags],
+    product_id: document.getElementById('productId').value.trim(),
+    dry_run: document.getElementById('dryRun').checked,
+    model: document.getElementById('model').value,
+    duration: parseInt(document.getElementById('duration').value),
+  };
+
+  try {
+    // Start job
+    const res = await fetch('/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json();
+
+    if (data.error) {
+      addLog(data.error, 'error');
+      setStatus('error', 'error');
+      finishRun(false);
+      return;
+    }
+
+    currentJobId = data.job_id;
+    addLog(`Job started: ${currentJobId}`, 'accent');
+
+    // Stream logs via SSE
+    const evtSource = new EventSource(`/api/stream/${currentJobId}`);
+    evtSource.onmessage = (e) => {
+      const entry = JSON.parse(e.data);
+      if (entry.ping) return;
+      if (entry.step !== undefined) { setStep(entry.step); return; }
+      if (entry.done) {
+        evtSource.close();
+        if (entry.error) {
+          setStatus('error', 'error');
+          finishRun(false);
+        } else {
+          allDone();
+          setStatus('done', 'done ✓');
+          finishRun(true);
+
+          // Setup scheduler if enabled
+          setupScheduler();
+        }
+        return;
+      }
+      if (entry.msg) addLog(entry.msg, entry.level || 'info');
+    };
+    evtSource.onerror = () => {
+      evtSource.close();
+      addLog('Connection lost', 'error');
+      setStatus('error', 'error');
+      finishRun(false);
+    };
+
+  } catch (err) {
+    addLog(`Network error: ${err.message}`, 'error');
+    setStatus('error', 'error');
+    finishRun(false);
+  }
+}
+
+function finishRun(success) {
+  isRunning = false;
+  const btn = document.getElementById('runBtn');
+  btn.classList.remove('running');
+  btn.disabled = false;
+  if (success) {
+    btn.classList.add('success-state');
+    btn.textContent = '✓ Done — Run Again';
+    setTimeout(() => {
+      btn.classList.remove('success-state');
+      btn.textContent = '▶ Run Pipeline';
+      setStatus('idle', 'idle');
+    }, 5000);
+  } else {
+    btn.textContent = '▶ Run Pipeline';
+  }
+}
+
+// ── Scheduler ──────────────────────────────────────────────────────────────
+function setupScheduler() {
+  if (!document.getElementById('scheduleOn').checked) return;
+  const timeStr = document.getElementById('scheduleTime').value || '09:00';
+  const [hour, min] = timeStr.split(':').map(Number);
+
+  if (schedulerInterval) clearInterval(schedulerInterval);
+
+  // Check every minute if it's time to run
+  schedulerInterval = setInterval(() => {
+    const now = new Date();
+    if (now.getHours() === hour && now.getMinutes() === min && !isRunning) {
+      addLog(`Scheduled run triggered at ${timeStr}`, 'accent');
+      runPipeline();
+    }
+  }, 60 * 1000);
+
+  toast(`Scheduler set for ${timeStr} daily`);
+}
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function toast(msg) {
+  document.querySelectorAll('.toast').forEach(t => t.remove());
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 2500);
+}
+</script>
+</body>
+</html>
