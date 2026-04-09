@@ -62,7 +62,7 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
         payload = {
             "model": model,
             "prompt": prompt,
-            "size": "1080x1920",
+            "size": "720x1280",  # valid portrait sizes: 720x1280 or 1024x1792
             "seconds": str(duration),  # must be string: "4", "8", or "12"
         }
         push_log(job_id, "POST /v1/videos ...", "info")
