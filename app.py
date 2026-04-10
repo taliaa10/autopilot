@@ -48,41 +48,25 @@ def push_step(job_id, step):
 
 
 def _make_dummy_mp4() -> bytes:
-    """Generate a minimal valid MP4 byte string — no external tools needed."""
-    # Smallest possible ftyp + mdat + moov that most uploaders accept
+    """Minimal valid MP4 - pure Python, no dependencies."""
     import struct
-
-    def box(name: str, *children) -> bytes:
-        data = b"".join(children)
+    def box(name, data=b""):
         return struct.pack(">I", len(data) + 8) + name.encode() + data
-
-    def full_box(name: str, version: int, flags: int, *children) -> bytes:
-        data = b"".join(children)
-        return struct.pack(">I", len(data) + 12) + name.encode() + struct.pack(">B", version) + struct.pack(">I", flags)[1:] + data
-
-    ftyp = box("ftyp", b"mp42", b"\x00\x00\x00\x00", b"mp42", b"isom")
-
-    # Minimal mdat (1 byte of video data placeholder)
-    mdat = box("mdat", b"\x00")
-
-    # Minimal moov with mvhd + trak
-    mvhd = full_box("mvhd", 0, 0,
-        struct.pack(">IIIIHHIIIIIII",
-            0, 0,       # creation, modification time
-            1000,       # timescale
-            4000,       # duration (4 sec)
-            0x00010000, # rate 1.0
-            0x0100,     # volume 1.0
-            0, 0,       # reserved
-            0x00010000, 0, 0,  # matrix row 1
-            0, 0x00010000, 0,  # matrix row 2
-            0, 0, 0x40000000,  # matrix row 3
-            0, 0, 0, 0, 0, 0,  # pre-defined
-            2,          # next track id
-        )
+    def u32(n): return struct.pack(">I", n)
+    def u16(n): return struct.pack(">H", n)
+    ftyp = box("ftyp", b"isom" + u32(0x200) + b"isom" + b"iso2" + b"mp41")
+    mvhd_data = (
+        u32(0) + u32(0) + u32(0) +
+        u32(1000) + u32(4000) +
+        u32(0x00010000) + u16(0x0100) +
+        b"\x00" * 10 +
+        u32(0x00010000) + u32(0) + u32(0) +
+        u32(0) + u32(0x00010000) + u32(0) +
+        u32(0) + u32(0) + u32(0x40000000) +
+        b"\x00" * 24 + u32(2)
     )
-    moov = box("moov", mvhd)
-    return ftyp + mdat + moov
+    moov = box("moov", box("mvhd", mvhd_data))
+    return ftyp + box("mdat", b"\x00" * 4) + moov
 
 
 def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, duration):
