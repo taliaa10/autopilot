@@ -24,6 +24,162 @@ TIKTOK_SESSION_ID = os.environ.get("TIKTOK_SESSION_ID", "")
 APP_SECRET        = os.environ.get("APP_SECRET", "")
 
 OUTPUT_DIR = Path("/tmp/videos")
+
+# ── TikTok Official Content Posting API ───────────────────────────────────────
+PROXY_URL            = os.environ.get("PROXY_URL", "")  # e.g. http://user:pass@proxy.webshare.io:port
+TIKTOK_CLIENT_KEY    = os.environ.get("TIKTOK_CLIENT_KEY", "")
+TIKTOK_CLIENT_SECRET = os.environ.get("TIKTOK_CLIENT_SECRET", "")
+TIKTOK_REDIRECT_URI  = os.environ.get("TIKTOK_REDIRECT_URI", "")  # e.g. https://yourapp.railway.app/oauth/callback
+
+def tiktok_oauth_url():
+    """Generate TikTok OAuth authorization URL."""
+    import urllib.parse
+    params = {
+        "client_key": TIKTOK_CLIENT_KEY,
+        "scope": "video.publish,video.upload",
+        "response_type": "code",
+        "redirect_uri": TIKTOK_REDIRECT_URI,
+        "state": "autopilot",
+    }
+    return "https://www.tiktok.com/v2/auth/authorize?" + urllib.parse.urlencode(params)
+
+def tiktok_exchange_code(code: str) -> dict:
+    """Exchange auth code for access token."""
+    resp = requests.post(
+        "https://open.tiktokapis.com/v2/oauth/token/",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "client_key": TIKTOK_CLIENT_KEY,
+            "client_secret": TIKTOK_CLIENT_SECRET,
+            "code": code,
+            "grant_type": "authorization_code",
+            "redirect_uri": TIKTOK_REDIRECT_URI,
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+def tiktok_refresh_token(refresh_token: str) -> dict:
+    """Refresh an expired access token."""
+    resp = requests.post(
+        "https://open.tiktokapis.com/v2/oauth/token/",
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+        data={
+            "client_key": TIKTOK_CLIENT_KEY,
+            "client_secret": TIKTOK_CLIENT_SECRET,
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+def tiktok_get_token() -> str:
+    """Get a valid access token, refreshing if needed. Stores in /tmp/tiktok_token.json."""
+    token_file = Path("/tmp/tiktok_token.json")
+    import time
+
+    if token_file.exists():
+        data = json.loads(token_file.read_text())
+        # Refresh if expires in less than 1 hour
+        if data.get("expires_at", 0) - time.time() > 3600:
+            return data["access_token"]
+        # Try to refresh
+        if data.get("refresh_token"):
+            try:
+                refreshed = tiktok_refresh_token(data["refresh_token"])
+                refreshed["expires_at"] = time.time() + refreshed.get("expires_in", 86400)
+                token_file.write_text(json.dumps(refreshed))
+                return refreshed["access_token"]
+            except Exception as e:
+                log.warning(f"Token refresh failed: {e}")
+
+    raise RuntimeError("TikTok not connected. Visit /tiktok/connect to authorize.")
+
+def tiktok_post_video(video_path: Path, caption: str, hashtags: list, product_id: str = None) -> str:
+    """Post a video using TikTok Content Posting API. Returns publish_id."""
+    access_token = tiktok_get_token()
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json; charset=UTF-8",
+    }
+
+    # Step 1: Query creator info (required by TikTok UX guidelines)
+    creator_resp = requests.post(
+        "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
+        headers=headers,
+        timeout=30,
+    )
+    creator_resp.raise_for_status()
+    creator_data = creator_resp.json().get("data", {})
+    privacy_options = creator_data.get("privacy_level_options", ["PUBLIC_TO_EVERYONE"])
+    privacy = "PUBLIC_TO_EVERYONE" if "PUBLIC_TO_EVERYONE" in privacy_options else privacy_options[0]
+
+    # Step 2: Init upload
+    video_size = video_path.stat().st_size
+    hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+    title = f"{caption} {hashtag_str}".strip()[:2200]  # TikTok title limit
+
+    init_resp = requests.post(
+        "https://open.tiktokapis.com/v2/post/publish/video/init/",
+        headers=headers,
+        json={
+            "post_info": {
+                "title": title,
+                "privacy_level": privacy,
+                "disable_duet": False,
+                "disable_comment": False,
+                "disable_stitch": False,
+            },
+            "source_info": {
+                "source": "FILE_UPLOAD",
+                "video_size": video_size,
+                "chunk_size": video_size,
+                "total_chunk_count": 1,
+            },
+        },
+        timeout=30,
+    )
+    init_resp.raise_for_status()
+    init_data = init_resp.json()
+    publish_id = init_data["data"]["publish_id"]
+    upload_url = init_data["data"]["upload_url"]
+
+    # Step 3: Upload video bytes
+    with open(video_path, "rb") as f:
+        video_bytes = f.read()
+
+    upload_resp = requests.put(
+        upload_url,
+        headers={
+            "Content-Range": f"bytes 0-{video_size-1}/{video_size}",
+            "Content-Type": "video/mp4",
+        },
+        data=video_bytes,
+        timeout=300,
+    )
+    upload_resp.raise_for_status()
+
+    return publish_id
+
+def tiktok_check_post_status(publish_id: str) -> dict:
+    """Check status of a published video."""
+    access_token = tiktok_get_token()
+    resp = requests.post(
+        "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=UTF-8",
+        },
+        json={"publish_id": publish_id},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 jobs = {}
@@ -174,28 +330,51 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
         else:
             push_step(job_id, 3)
             push_log(job_id, "Starting TikTok upload...", "step")
-            try:
-                from tiktok_uploader.upload import TikTokUploader
-            except ImportError:
-                raise RuntimeError("tiktok-uploader not installed.")
-
-            cookies_list = [{
-                'name': 'sessionid',
-                'value': TIKTOK_SESSION_ID,
-                'domain': '.tiktok.com',
-                'path': '/',
-                'expiry': 2147483647,
-            }]
-            hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
-            full_desc = f"{caption} {hashtag_str}".strip()
-            uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True)
-            video_kwargs = dict(description=full_desc)
-            if product_id:
-                video_kwargs["product_id"] = product_id
-                push_log(job_id, f"Attaching product ID: {product_id}", "info")
-            push_log(job_id, "Uploading via Playwright...", "info")
-            push_log(job_id, "Note: check TikTok drafts if not visible publicly", "info")
-            uploader.upload_video(str(video_path), **video_kwargs)
+            # Use official API if connected, otherwise use cookie + proxy method
+            token_file = Path("/tmp/tiktok_token.json")
+            if token_file.exists():
+                push_log(job_id, "Using TikTok Official Content Posting API...", "info")
+                publish_id = tiktok_post_video(video_path, caption, hashtags, product_id)
+                push_log(job_id, f"Video uploaded → publish_id={publish_id}", "info")
+                push_log(job_id, "Waiting for TikTok to process video...", "info")
+                import time as _time
+                for _ in range(20):
+                    _time.sleep(5)
+                    status = tiktok_check_post_status(publish_id)
+                    post_status = status.get("data", {}).get("status", "unknown")
+                    push_log(job_id, f"Post status: {post_status}", "info")
+                    if post_status in ("PUBLISH_COMPLETE", "SUCCESS"):
+                        break
+                    elif post_status in ("FAILED", "ERROR"):
+                        raise RuntimeError(f"TikTok post failed: {status}")
+            else:
+                # Cookie + residential proxy method
+                if not PROXY_URL:
+                    raise RuntimeError("Neither TikTok API connected nor PROXY_URL set. Visit /tiktok/connect or add PROXY_URL to Railway Variables.")
+                push_log(job_id, "Using cookie + proxy method...", "info")
+                try:
+                    from tiktok_uploader.upload import TikTokUploader
+                except ImportError:
+                    raise RuntimeError("tiktok-uploader not installed.")
+                proxy_parts = PROXY_URL.replace("http://", "").replace("https://", "")
+                if "@" in proxy_parts:
+                    creds, host_port = proxy_parts.rsplit("@", 1)
+                    proxy_user, proxy_pass = creds.split(":", 1)
+                    proxy_host, proxy_port = host_port.rsplit(":", 1)
+                    proxy = {"user": proxy_user, "pass": proxy_pass, "host": proxy_host, "port": proxy_port}
+                else:
+                    proxy_host, proxy_port = proxy_parts.rsplit(":", 1)
+                    proxy = {"host": proxy_host, "port": proxy_port}
+                push_log(job_id, f"Proxy: {proxy.get('host')}:{proxy.get('port')}", "info")
+                cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID, "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
+                hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+                full_desc = f"{caption} {hashtag_str}".strip()
+                uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy)
+                video_kwargs = dict(description=full_desc)
+                if product_id:
+                    video_kwargs["product_id"] = product_id
+                push_log(job_id, "Uploading via Playwright + proxy...", "info")
+                uploader.upload_video(str(video_path), **video_kwargs)
             push_step(job_id, 4)
             push_log(job_id, "Posted to TikTok ✓ — check your profile AND drafts", "success")
 
@@ -398,8 +577,16 @@ let hashtags=[],presets=[],currentJobId=null,isRunning=false,schedulerInterval=n
 document.addEventListener('DOMContentLoaded',async()=>{
   try {
     const cfg = await fetch('/api/check-config').then(r=>r.json());
-    if (!cfg.TIKTOK_SESSION_ID.startsWith('set')) {
-      setTimeout(()=>toast('⚠ TIKTOK_SESSION_ID not set in Railway Variables!'),500);
+    const tt = await fetch('/tiktok/status').then(r=>r.json());
+    if (!tt.connected) {
+      setTimeout(()=>toast('⚠ TikTok not connected — tap to authorize'),500);
+      setTimeout(()=>{
+        if(confirm('TikTok not connected. Open authorization page now?')) {
+          window.open('/tiktok/connect','_blank');
+        }
+      }, 1200);
+    } else if (tt.needs_refresh) {
+      setTimeout(()=>toast('⚠ TikTok token expiring soon — reconnect at /tiktok/connect'),500);
     }
   } catch(e) {}
   setupChipInput();
@@ -676,26 +863,48 @@ def api_test_tiktok():
             jobs[job_id]["video_path"] = str(video_path_to_use)
 
             push_log(job_id, "Starting TikTok upload...", "step")
-            try:
-                from tiktok_uploader.upload import TikTokUploader
-            except ImportError:
-                raise RuntimeError("tiktok-uploader not installed.")
-
-            cookies_list = [{
-                'name': 'sessionid',
-                'value': TIKTOK_SESSION_ID,
-                'domain': '.tiktok.com',
-                'path': '/',
-                'expiry': 2147483647,
-            }]
-            hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
-            full_desc = f"{caption} {hashtag_str}".strip()
-            uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True)
-            video_kwargs = dict(description=full_desc)
-            if product_id:
-                video_kwargs["product_id"] = product_id
-            push_log(job_id, "Uploading via Playwright...", "info")
-            uploader.upload_video(str(video_path_to_use), **video_kwargs)
+            token_file = Path("/tmp/tiktok_token.json")
+            if token_file.exists():
+                push_log(job_id, "Using TikTok Official Content Posting API...", "info")
+                publish_id = tiktok_post_video(video_path_to_use, caption, hashtags, product_id)
+                push_log(job_id, f"Video uploaded → publish_id={publish_id}", "info")
+                import time as _time
+                for _ in range(20):
+                    _time.sleep(5)
+                    status = tiktok_check_post_status(publish_id)
+                    post_status = status.get("data", {}).get("status", "unknown")
+                    push_log(job_id, f"Post status: {post_status}", "info")
+                    if post_status in ("PUBLISH_COMPLETE", "SUCCESS"):
+                        break
+                    elif post_status in ("FAILED", "ERROR"):
+                        raise RuntimeError(f"TikTok post failed: {status}")
+            else:
+                if not PROXY_URL:
+                    raise RuntimeError("Neither TikTok API connected nor PROXY_URL set. Visit /tiktok/connect or add PROXY_URL.")
+                push_log(job_id, "Using cookie + proxy method...", "info")
+                try:
+                    from tiktok_uploader.upload import TikTokUploader
+                except ImportError:
+                    raise RuntimeError("tiktok-uploader not installed.")
+                proxy_parts = PROXY_URL.replace("http://", "").replace("https://", "")
+                if "@" in proxy_parts:
+                    creds, host_port = proxy_parts.rsplit("@", 1)
+                    proxy_user, proxy_pass = creds.split(":", 1)
+                    proxy_host, proxy_port = host_port.rsplit(":", 1)
+                    proxy = {"user": proxy_user, "pass": proxy_pass, "host": proxy_host, "port": proxy_port}
+                else:
+                    proxy_host, proxy_port = proxy_parts.rsplit(":", 1)
+                    proxy = {"host": proxy_host, "port": proxy_port}
+                push_log(job_id, f"Proxy: {proxy.get('host')}:{proxy.get('port')}", "info")
+                cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID, "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
+                hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+                full_desc = f"{caption} {hashtag_str}".strip()
+                uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy)
+                video_kwargs = dict(description=full_desc)
+                if product_id:
+                    video_kwargs["product_id"] = product_id
+                push_log(job_id, "Uploading via Playwright + proxy...", "info")
+                uploader.upload_video(str(video_path_to_use), **video_kwargs)
             push_step(job_id, 4)
             push_log(job_id, "Posted to TikTok ✓", "success")
             jobs[job_id]["status"] = "done"
@@ -715,9 +924,79 @@ def api_test_tiktok():
 
 @app.route("/api/check-config")
 def check_config():
+    import time
+    token_file = Path("/tmp/tiktok_token.json")
+    tiktok_connected = token_file.exists()
     return jsonify({
         "OPENAI_API_KEY": "set" if OPENAI_API_KEY else "NOT SET",
         "TIKTOK_SESSION_ID": f"set ({len(TIKTOK_SESSION_ID)} chars)" if TIKTOK_SESSION_ID else "NOT SET",
+        "PROXY_URL": "set" if PROXY_URL else "NOT SET",
+        "TIKTOK_API_CONNECTED": tiktok_connected,
+        "tip": "Visit /tiktok/connect to authorize TikTok, or set PROXY_URL + TIKTOK_SESSION_ID for cookie-based posting"
+    })
+
+
+# ── TikTok OAuth Routes ────────────────────────────────────────────────────────
+
+@app.route("/tiktok/connect")
+def tiktok_connect():
+    """Redirect user to TikTok OAuth."""
+    if not TIKTOK_CLIENT_KEY:
+        return "TIKTOK_CLIENT_KEY not set in Railway Variables", 500
+    return f'''<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{{font-family:monospace;background:#080810;color:#f0f0f8;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:20px;padding:20px;text-align:center}}
+a{{display:block;padding:16px 32px;background:#c8ff57;color:#080810;border-radius:12px;font-weight:bold;text-decoration:none;font-size:1rem;letter-spacing:0.1em}}</style></head>
+<body>
+<div style="font-size:1.5rem;font-weight:bold;">AUTOPILOT</div>
+<div style="color:#888;font-size:0.85rem;">Connect your TikTok account to enable official API posting</div>
+<a href="{tiktok_oauth_url()}">Connect TikTok Account</a>
+<div style="color:#555;font-size:0.75rem;max-width:300px;">You'll be redirected to TikTok to authorize. This replaces the cookie-based method.</div>
+</body></html>'''
+
+@app.route("/oauth/callback")
+def oauth_callback():
+    """Handle TikTok OAuth callback — exchange code for token."""
+    import time
+    code = request.args.get("code")
+    error = request.args.get("error")
+
+    if error:
+        return f"OAuth error: {error}", 400
+    if not code:
+        return "No code received", 400
+
+    try:
+        token_data = tiktok_exchange_code(code)
+        token_data["expires_at"] = time.time() + token_data.get("expires_in", 86400)
+        Path("/tmp/tiktok_token.json").write_text(json.dumps(token_data))
+        return '''<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width,initial-scale=1">
+<style>body{font-family:monospace;background:#080810;color:#f0f0f8;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:16px;text-align:center}
+.check{font-size:3rem}.btn{padding:14px 28px;background:#c8ff57;color:#080810;border-radius:10px;font-weight:bold;text-decoration:none;font-size:0.9rem}</style></head>
+<body>
+<div class="check">✓</div>
+<div style="font-size:1.2rem;font-weight:bold">TikTok Connected!</div>
+<div style="color:#888;font-size:0.8rem">Your account is now authorized. Return to the app to post.</div>
+<a class="btn" href="/">Back to Autopilot</a>
+</body></html>'''
+    except Exception as e:
+        return f"Token exchange failed: {e}", 500
+
+@app.route("/tiktok/status")
+def tiktok_status():
+    """Check if TikTok is connected."""
+    token_file = Path("/tmp/tiktok_token.json")
+    import time
+    if not token_file.exists():
+        return jsonify({"connected": False, "message": "Not connected"})
+    data = json.loads(token_file.read_text())
+    expires_at = data.get("expires_at", 0)
+    expires_in = int(expires_at - time.time())
+    return jsonify({
+        "connected": True,
+        "expires_in_hours": round(expires_in / 3600, 1),
+        "needs_refresh": expires_in < 3600,
     })
 
 @app.route("/health")
