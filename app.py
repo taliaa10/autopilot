@@ -181,7 +181,8 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
 
             cookies_path = OUTPUT_DIR / "cookies.txt"
             cookies_path.write_text(
-                f"# Netscape HTTP Cookie File\n.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\t{TIKTOK_SESSION_ID}\n"
+                "# Netscape HTTP Cookie File\n"
+                f".tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\t{TIKTOK_SESSION_ID}\n"
             )
             hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
             full_desc = f"{caption} {hashtag_str}".strip()
@@ -398,6 +399,12 @@ select option{background:#16162a}
 <script>
 let hashtags=[],presets=[],currentJobId=null,isRunning=false,schedulerInterval=null;
 document.addEventListener('DOMContentLoaded',async()=>{
+  try {
+    const cfg = await fetch('/api/check-config').then(r=>r.json());
+    if (!cfg.TIKTOK_SESSION_ID.startsWith('set')) {
+      setTimeout(()=>toast('⚠ TIKTOK_SESSION_ID not set in Railway Variables!'),500);
+    }
+  } catch(e) {}
   setupChipInput();
   document.getElementById('prompt').addEventListener('input',()=>counter('prompt','pc',500));
   document.getElementById('caption').addEventListener('input',()=>counter('caption','cc',150));
@@ -498,6 +505,29 @@ function finishTest(success) {
   btn.textContent = success ? '✓ TikTok Test Passed!' : '📷 Test TikTok Upload Only';
   document.getElementById('runBtn').disabled = false;
   if (success) setTimeout(() => { btn.textContent = '📷 Test TikTok Upload Only'; setStatus('idle','idle'); }, 5000);
+}
+
+function copyLog() {
+  const lines = [...document.getElementById('log').querySelectorAll('.log-line')]
+    .map(el => el.textContent).join('\n');
+  const btn = document.getElementById('copyLogBtn');
+  function flash() {
+    btn.textContent = 'copied!';
+    btn.style.color = 'var(--cyan)';
+    setTimeout(() => { btn.textContent = 'copy'; btn.style.color = ''; }, 2000);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(lines).then(flash).catch(() => fallbackCopy(lines, flash));
+  } else { fallbackCopy(lines, flash); }
+}
+function fallbackCopy(text, cb) {
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand('copy'); cb(); } catch(e) { alert('Copy failed — long press the log to copy manually'); }
+  document.body.removeChild(ta);
 }
 function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.remove());const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),2500);}
 </script>
@@ -630,7 +660,8 @@ def api_test_tiktok():
 
             cookies_path = OUTPUT_DIR / "cookies.txt"
             cookies_path.write_text(
-                f"# Netscape HTTP Cookie File\n.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\t{TIKTOK_SESSION_ID}\n"
+                "# Netscape HTTP Cookie File\n"
+                f".tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\t{TIKTOK_SESSION_ID}\n"
             )
             hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
             full_desc = f"{caption} {hashtag_str}".strip()
@@ -661,6 +692,14 @@ def api_test_tiktok():
 
     threading.Thread(target=run_tiktok_test, daemon=True).start()
     return jsonify({"job_id": job_id})
+
+
+@app.route("/api/check-config")
+def check_config():
+    return jsonify({
+        "OPENAI_API_KEY": "set" if OPENAI_API_KEY else "NOT SET",
+        "TIKTOK_SESSION_ID": f"set ({len(TIKTOK_SESSION_ID)} chars)" if TIKTOK_SESSION_ID else "NOT SET",
+    })
 
 @app.route("/health")
 def health():
