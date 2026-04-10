@@ -175,30 +175,26 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
             push_step(job_id, 3)
             push_log(job_id, "Starting TikTok upload...", "step")
             try:
-                from tiktok_uploader.upload import upload_video
+                from tiktok_uploader.upload import TikTokUploader
             except ImportError:
                 raise RuntimeError("tiktok-uploader not installed.")
 
-            cookies_path = OUTPUT_DIR / "cookies.txt"
-            cookies_path.write_text(
-                "# Netscape HTTP Cookie File\n"
-                f".tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\t{TIKTOK_SESSION_ID}\n"
-            )
+            cookies_list = [{
+                'name': 'sessionid',
+                'value': TIKTOK_SESSION_ID,
+                'domain': '.tiktok.com',
+                'path': '/',
+                'expiry': 2147483647,
+            }]
             hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
             full_desc = f"{caption} {hashtag_str}".strip()
-            kwargs = dict(
-                filename=str(video_path),
-                description=full_desc,
-                cookies=str(cookies_path),
-                browser="chrome",
-                headless=True,  # required on Railway — no display server available
-            )
+            uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True)
+            video_kwargs = dict(description=full_desc)
             if product_id:
-                kwargs["product_id"] = product_id
+                video_kwargs["product_id"] = product_id
                 push_log(job_id, f"Attaching product ID: {product_id}", "info")
-
             push_log(job_id, "Uploading via Playwright...", "info")
-            upload_video(**kwargs)
+            uploader.upload_video(str(video_path), **video_kwargs)
             push_step(job_id, 4)
             push_log(job_id, "Posted to TikTok ✓", "success")
 
@@ -654,29 +650,25 @@ def api_test_tiktok():
 
             push_log(job_id, "Starting TikTok upload...", "step")
             try:
-                from tiktok_uploader.upload import upload_video
+                from tiktok_uploader.upload import TikTokUploader
             except ImportError:
                 raise RuntimeError("tiktok-uploader not installed.")
 
-            cookies_path = OUTPUT_DIR / "cookies.txt"
-            cookies_path.write_text(
-                "# Netscape HTTP Cookie File\n"
-                f".tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\t{TIKTOK_SESSION_ID}\n"
-            )
+            cookies_list = [{
+                'name': 'sessionid',
+                'value': TIKTOK_SESSION_ID,
+                'domain': '.tiktok.com',
+                'path': '/',
+                'expiry': 2147483647,
+            }]
             hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
             full_desc = f"{caption} {hashtag_str}".strip()
-
-            kwargs = dict(
-                filename=str(video_path_to_use),
-                description=full_desc,
-                cookies=str(cookies_path),
-                browser="chrome",
-                headless=True,
-            )
+            uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True)
+            video_kwargs = dict(description=full_desc)
             if product_id:
-                kwargs["product_id"] = product_id
-
-            upload_video(**kwargs)
+                video_kwargs["product_id"] = product_id
+            push_log(job_id, "Uploading via Playwright...", "info")
+            uploader.upload_video(str(video_path_to_use), **video_kwargs)
             push_step(job_id, 4)
             push_log(job_id, "Posted to TikTok ✓", "success")
             jobs[job_id]["status"] = "done"
