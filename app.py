@@ -1,7 +1,7 @@
-"""
+“””
 app.py — AUTOPILOT (single-file version for Railway)
 HTML is embedded directly — no templates/ folder needed.
-"""
+“””
 
 import os
 import time
@@ -14,171 +14,175 @@ from pathlib import Path
 from datetime import datetime
 from flask import Flask, request, jsonify, Response
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-log = logging.getLogger(__name__)
+logging.basicConfig(level=logging.INFO, format=”%(asctime)s [%(levelname)s] %(message)s”)
+log = logging.getLogger(**name**)
 
-app = Flask(__name__)
+app = Flask(**name**)
 
-OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
-TIKTOK_SESSION_ID = os.environ.get("TIKTOK_SESSION_ID", "")
-APP_SECRET        = os.environ.get("APP_SECRET", "")
+OPENAI_API_KEY    = os.environ.get(“OPENAI_API_KEY”, “”)
+TIKTOK_SESSION_ID = os.environ.get(“TIKTOK_SESSION_ID”, “”)
+APP_SECRET        = os.environ.get(“APP_SECRET”, “”)
 
-OUTPUT_DIR = Path("/tmp/videos")
+OUTPUT_DIR = Path(”/tmp/videos”)
 
 # ── TikTok Official Content Posting API ───────────────────────────────────────
-PROXY_URL            = os.environ.get("PROXY_URL", "")  # e.g. http://user:pass@proxy.webshare.io:port
-TIKTOK_CLIENT_KEY    = os.environ.get("TIKTOK_CLIENT_KEY", "")
-TIKTOK_CLIENT_SECRET = os.environ.get("TIKTOK_CLIENT_SECRET", "")
-TIKTOK_REDIRECT_URI  = os.environ.get("TIKTOK_REDIRECT_URI", "")  # e.g. https://yourapp.railway.app/oauth/callback
+
+PROXY_URL            = os.environ.get(“PROXY_URL”, “”)  # e.g. http://user:pass@proxy.webshare.io:port
+TIKTOK_CLIENT_KEY    = os.environ.get(“TIKTOK_CLIENT_KEY”, “”)
+TIKTOK_CLIENT_SECRET = os.environ.get(“TIKTOK_CLIENT_SECRET”, “”)
+TIKTOK_REDIRECT_URI  = os.environ.get(“TIKTOK_REDIRECT_URI”, “”)  # e.g. https://yourapp.railway.app/oauth/callback
 
 def tiktok_oauth_url():
-    """Generate TikTok OAuth authorization URL."""
-    import urllib.parse
-    params = {
-        "client_key": TIKTOK_CLIENT_KEY,
-        "scope": "video.publish,video.upload",
-        "response_type": "code",
-        "redirect_uri": TIKTOK_REDIRECT_URI,
-        "state": "autopilot",
-    }
-    return "https://www.tiktok.com/v2/auth/authorize?" + urllib.parse.urlencode(params)
+“”“Generate TikTok OAuth authorization URL.”””
+import urllib.parse
+params = {
+“client_key”: TIKTOK_CLIENT_KEY,
+“scope”: “video.publish,video.upload”,
+“response_type”: “code”,
+“redirect_uri”: TIKTOK_REDIRECT_URI,
+“state”: “autopilot”,
+}
+return “https://www.tiktok.com/v2/auth/authorize?” + urllib.parse.urlencode(params)
 
 def tiktok_exchange_code(code: str) -> dict:
-    """Exchange auth code for access token."""
-    resp = requests.post(
-        "https://open.tiktokapis.com/v2/oauth/token/",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        data={
-            "client_key": TIKTOK_CLIENT_KEY,
-            "client_secret": TIKTOK_CLIENT_SECRET,
-            "code": code,
-            "grant_type": "authorization_code",
-            "redirect_uri": TIKTOK_REDIRECT_URI,
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
+“”“Exchange auth code for access token.”””
+resp = requests.post(
+“https://open.tiktokapis.com/v2/oauth/token/”,
+headers={“Content-Type”: “application/x-www-form-urlencoded”},
+data={
+“client_key”: TIKTOK_CLIENT_KEY,
+“client_secret”: TIKTOK_CLIENT_SECRET,
+“code”: code,
+“grant_type”: “authorization_code”,
+“redirect_uri”: TIKTOK_REDIRECT_URI,
+},
+timeout=30,
+)
+resp.raise_for_status()
+return resp.json()
 
 def tiktok_refresh_token(refresh_token: str) -> dict:
-    """Refresh an expired access token."""
-    resp = requests.post(
-        "https://open.tiktokapis.com/v2/oauth/token/",
-        headers={"Content-Type": "application/x-www-form-urlencoded"},
-        data={
-            "client_key": TIKTOK_CLIENT_KEY,
-            "client_secret": TIKTOK_CLIENT_SECRET,
-            "grant_type": "refresh_token",
-            "refresh_token": refresh_token,
-        },
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
+“”“Refresh an expired access token.”””
+resp = requests.post(
+“https://open.tiktokapis.com/v2/oauth/token/”,
+headers={“Content-Type”: “application/x-www-form-urlencoded”},
+data={
+“client_key”: TIKTOK_CLIENT_KEY,
+“client_secret”: TIKTOK_CLIENT_SECRET,
+“grant_type”: “refresh_token”,
+“refresh_token”: refresh_token,
+},
+timeout=30,
+)
+resp.raise_for_status()
+return resp.json()
 
 def tiktok_get_token() -> str:
-    """Get a valid access token, refreshing if needed. Stores in /tmp/tiktok_token.json."""
-    token_file = Path("/tmp/tiktok_token.json")
-    import time
+“”“Get a valid access token, refreshing if needed. Stores in /tmp/tiktok_token.json.”””
+token_file = Path(”/tmp/tiktok_token.json”)
+import time
 
-    if token_file.exists():
-        data = json.loads(token_file.read_text())
-        # Refresh if expires in less than 1 hour
-        if data.get("expires_at", 0) - time.time() > 3600:
-            return data["access_token"]
-        # Try to refresh
-        if data.get("refresh_token"):
-            try:
-                refreshed = tiktok_refresh_token(data["refresh_token"])
-                refreshed["expires_at"] = time.time() + refreshed.get("expires_in", 86400)
-                token_file.write_text(json.dumps(refreshed))
-                return refreshed["access_token"]
-            except Exception as e:
-                log.warning(f"Token refresh failed: {e}")
+```
+if token_file.exists():
+    data = json.loads(token_file.read_text())
+    # Refresh if expires in less than 1 hour
+    if data.get("expires_at", 0) - time.time() > 3600:
+        return data["access_token"]
+    # Try to refresh
+    if data.get("refresh_token"):
+        try:
+            refreshed = tiktok_refresh_token(data["refresh_token"])
+            refreshed["expires_at"] = time.time() + refreshed.get("expires_in", 86400)
+            token_file.write_text(json.dumps(refreshed))
+            return refreshed["access_token"]
+        except Exception as e:
+            log.warning(f"Token refresh failed: {e}")
 
-    raise RuntimeError("TikTok not connected. Visit /tiktok/connect to authorize.")
+raise RuntimeError("TikTok not connected. Visit /tiktok/connect to authorize.")
+```
 
 def tiktok_post_video(video_path: Path, caption: str, hashtags: list, product_id: str = None) -> str:
-    """Post a video using TikTok Content Posting API. Returns publish_id."""
-    access_token = tiktok_get_token()
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json; charset=UTF-8",
-    }
+“”“Post a video using TikTok Content Posting API. Returns publish_id.”””
+access_token = tiktok_get_token()
+headers = {
+“Authorization”: f”Bearer {access_token}”,
+“Content-Type”: “application/json; charset=UTF-8”,
+}
 
-    # Step 1: Query creator info (required by TikTok UX guidelines)
-    creator_resp = requests.post(
-        "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
-        headers=headers,
-        timeout=30,
-    )
-    creator_resp.raise_for_status()
-    creator_data = creator_resp.json().get("data", {})
-    privacy_options = creator_data.get("privacy_level_options", ["PUBLIC_TO_EVERYONE"])
-    privacy = "PUBLIC_TO_EVERYONE" if "PUBLIC_TO_EVERYONE" in privacy_options else privacy_options[0]
+```
+# Step 1: Query creator info (required by TikTok UX guidelines)
+creator_resp = requests.post(
+    "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
+    headers=headers,
+    timeout=30,
+)
+creator_resp.raise_for_status()
+creator_data = creator_resp.json().get("data", {})
+privacy_options = creator_data.get("privacy_level_options", ["PUBLIC_TO_EVERYONE"])
+privacy = "PUBLIC_TO_EVERYONE" if "PUBLIC_TO_EVERYONE" in privacy_options else privacy_options[0]
 
-    # Step 2: Init upload
-    video_size = video_path.stat().st_size
-    hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
-    title = f"{caption} {hashtag_str}".strip()[:2200]  # TikTok title limit
+# Step 2: Init upload
+video_size = video_path.stat().st_size
+hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+title = f"{caption} {hashtag_str}".strip()[:2200]  # TikTok title limit
 
-    init_resp = requests.post(
-        "https://open.tiktokapis.com/v2/post/publish/video/init/",
-        headers=headers,
-        json={
-            "post_info": {
-                "title": title,
-                "privacy_level": privacy,
-                "disable_duet": False,
-                "disable_comment": False,
-                "disable_stitch": False,
-            },
-            "source_info": {
-                "source": "FILE_UPLOAD",
-                "video_size": video_size,
-                "chunk_size": video_size,
-                "total_chunk_count": 1,
-            },
+init_resp = requests.post(
+    "https://open.tiktokapis.com/v2/post/publish/video/init/",
+    headers=headers,
+    json={
+        "post_info": {
+            "title": title,
+            "privacy_level": privacy,
+            "disable_duet": False,
+            "disable_comment": False,
+            "disable_stitch": False,
         },
-        timeout=30,
-    )
-    init_resp.raise_for_status()
-    init_data = init_resp.json()
-    publish_id = init_data["data"]["publish_id"]
-    upload_url = init_data["data"]["upload_url"]
-
-    # Step 3: Upload video bytes
-    with open(video_path, "rb") as f:
-        video_bytes = f.read()
-
-    upload_resp = requests.put(
-        upload_url,
-        headers={
-            "Content-Range": f"bytes 0-{video_size-1}/{video_size}",
-            "Content-Type": "video/mp4",
+        "source_info": {
+            "source": "FILE_UPLOAD",
+            "video_size": video_size,
+            "chunk_size": video_size,
+            "total_chunk_count": 1,
         },
-        data=video_bytes,
-        timeout=300,
-    )
-    upload_resp.raise_for_status()
+    },
+    timeout=30,
+)
+init_resp.raise_for_status()
+init_data = init_resp.json()
+publish_id = init_data["data"]["publish_id"]
+upload_url = init_data["data"]["upload_url"]
 
-    return publish_id
+# Step 3: Upload video bytes
+with open(video_path, "rb") as f:
+    video_bytes = f.read()
+
+upload_resp = requests.put(
+    upload_url,
+    headers={
+        "Content-Range": f"bytes 0-{video_size-1}/{video_size}",
+        "Content-Type": "video/mp4",
+    },
+    data=video_bytes,
+    timeout=300,
+)
+upload_resp.raise_for_status()
+
+return publish_id
+```
 
 def tiktok_check_post_status(publish_id: str) -> dict:
-    """Check status of a published video."""
-    access_token = tiktok_get_token()
-    resp = requests.post(
-        "https://open.tiktokapis.com/v2/post/publish/status/fetch/",
-        headers={
-            "Authorization": f"Bearer {access_token}",
-            "Content-Type": "application/json; charset=UTF-8",
-        },
-        json={"publish_id": publish_id},
-        timeout=30,
-    )
-    resp.raise_for_status()
-    return resp.json()
-
+“”“Check status of a published video.”””
+access_token = tiktok_get_token()
+resp = requests.post(
+“https://open.tiktokapis.com/v2/post/publish/status/fetch/”,
+headers={
+“Authorization”: f”Bearer {access_token}”,
+“Content-Type”: “application/json; charset=UTF-8”,
+},
+json={“publish_id”: publish_id},
+timeout=30,
+)
+resp.raise_for_status()
+return resp.json()
 
 OUTPUT_DIR.mkdir(exist_ok=True)
 
@@ -186,214 +190,215 @@ jobs = {}
 job_queues = {}
 
 def new_job_id():
-    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+return datetime.now().strftime(”%Y%m%d_%H%M%S_%f”)
 
-def push_log(job_id, msg, level="info"):
-    entry = {"msg": msg, "level": level, "t": datetime.now().strftime("%H:%M:%S")}
-    if job_id in jobs:
-        jobs[job_id]["logs"].append(entry)
-    if job_id in job_queues:
-        job_queues[job_id].put(entry)
+def push_log(job_id, msg, level=“info”):
+entry = {“msg”: msg, “level”: level, “t”: datetime.now().strftime(”%H:%M:%S”)}
+if job_id in jobs:
+jobs[job_id][“logs”].append(entry)
+if job_id in job_queues:
+job_queues[job_id].put(entry)
 
 def push_step(job_id, step):
-    entry = {"step": step, "t": datetime.now().strftime("%H:%M:%S")}
-    if job_id in jobs:
-        jobs[job_id]["step"] = step
-    if job_id in job_queues:
-        job_queues[job_id].put(entry)
-
+entry = {“step”: step, “t”: datetime.now().strftime(”%H:%M:%S”)}
+if job_id in jobs:
+jobs[job_id][“step”] = step
+if job_id in job_queues:
+job_queues[job_id].put(entry)
 
 def _make_dummy_mp4() -> bytes:
-    """Minimal valid MP4 - pure Python, no dependencies."""
-    import struct
-    def box(name, data=b""):
-        return struct.pack(">I", len(data) + 8) + name.encode() + data
-    def u32(n): return struct.pack(">I", n)
-    def u16(n): return struct.pack(">H", n)
-    ftyp = box("ftyp", b"isom" + u32(0x200) + b"isom" + b"iso2" + b"mp41")
-    mvhd_data = (
-        u32(0) + u32(0) + u32(0) +
-        u32(1000) + u32(4000) +
-        u32(0x00010000) + u16(0x0100) +
-        b"\x00" * 10 +
-        u32(0x00010000) + u32(0) + u32(0) +
-        u32(0) + u32(0x00010000) + u32(0) +
-        u32(0) + u32(0) + u32(0x40000000) +
-        b"\x00" * 24 + u32(2)
-    )
-    moov = box("moov", box("mvhd", mvhd_data))
-    return ftyp + box("mdat", b"\x00" * 4) + moov
-
+“”“Minimal valid MP4 - pure Python, no dependencies.”””
+import struct
+def box(name, data=b””):
+return struct.pack(”>I”, len(data) + 8) + name.encode() + data
+def u32(n): return struct.pack(”>I”, n)
+def u16(n): return struct.pack(”>H”, n)
+ftyp = box(“ftyp”, b”isom” + u32(0x200) + b”isom” + b”iso2” + b”mp41”)
+mvhd_data = (
+u32(0) + u32(0) + u32(0) +
+u32(1000) + u32(4000) +
+u32(0x00010000) + u16(0x0100) +
+b”\x00” * 10 +
+u32(0x00010000) + u32(0) + u32(0) +
+u32(0) + u32(0x00010000) + u32(0) +
+u32(0) + u32(0) + u32(0x40000000) +
+b”\x00” * 24 + u32(2)
+)
+moov = box(“moov”, box(“mvhd”, mvhd_data))
+return ftyp + box(“mdat”, b”\x00” * 4) + moov
 
 def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, duration):
-    try:
-        jobs[job_id]["status"] = "running"
+try:
+jobs[job_id][“status”] = “running”
 
-        push_step(job_id, 1)
-        push_log(job_id, f"Submitting to Sora API ({model}, {duration}s)...", "step")
+```
+    push_step(job_id, 1)
+    push_log(job_id, f"Submitting to Sora API ({model}, {duration}s)...", "step")
 
-        headers = {
-            "Authorization": f"Bearer {OPENAI_API_KEY}",
-            "Content-Type": "application/json",
-        }
+    headers = {
+        "Authorization": f"Bearer {OPENAI_API_KEY}",
+        "Content-Type": "application/json",
+    }
 
-        # Correct endpoint: POST /v1/videos  (not /v1/videos/generations)
-        payload = {
-            "model": model,
-            "prompt": prompt,
-            "size": "720x1280",  # valid portrait sizes: 720x1280 or 1024x1792
-            "seconds": str(duration),  # must be string: "4", "8", or "12"
-        }
-        push_log(job_id, "POST /v1/videos ...", "info")
-        resp = requests.post(
-            "https://api.openai.com/v1/videos",
+    # Correct endpoint: POST /v1/videos  (not /v1/videos/generations)
+    payload = {
+        "model": model,
+        "prompt": prompt,
+        "size": "720x1280",  # valid portrait sizes: 720x1280 or 1024x1792
+        "seconds": str(duration),  # must be string: "4", "8", or "12"
+    }
+    push_log(job_id, "POST /v1/videos ...", "info")
+    resp = requests.post(
+        "https://api.openai.com/v1/videos",
+        headers=headers,
+        json=payload,
+        timeout=60,
+    )
+
+    if not resp.ok:
+        push_log(job_id, f"Sora API error {resp.status_code}: {resp.text[:300]}", "error")
+        raise RuntimeError(f"Sora API returned {resp.status_code}: {resp.text[:200]}")
+
+    data = resp.json()
+    push_log(job_id, f"Response keys: {list(data.keys())}", "info")
+
+    job_sora_id = (
+        data.get("id")
+        or data.get("generation_id")
+        or (data.get("data") or [{}])[0].get("id")
+    )
+    if not job_sora_id:
+        raise RuntimeError(f"No job ID in response: {str(data)[:200]}")
+
+    push_log(job_id, f"Job queued → id={job_sora_id}", "info")
+
+    video_url = None
+    for attempt in range(180):
+        time.sleep(5)
+        # Correct poll endpoint: GET /v1/videos/{id}
+        poll = requests.get(
+            f"https://api.openai.com/v1/videos/{job_sora_id}",
             headers=headers,
-            json=payload,
-            timeout=60,
+            timeout=30,
         )
+        if not poll.ok:
+            push_log(job_id, f"Poll error {poll.status_code}: {poll.text[:200]}", "error")
+            raise RuntimeError(f"Poll failed: {poll.status_code}")
 
-        if not resp.ok:
-            push_log(job_id, f"Sora API error {resp.status_code}: {resp.text[:300]}", "error")
-            raise RuntimeError(f"Sora API returned {resp.status_code}: {resp.text[:200]}")
+        sd = poll.json()
+        status = sd.get("status", "unknown")
+        if attempt % 6 == 0:
+            push_log(job_id, f"Status: {status} ({attempt*5}s elapsed)", "info")
 
-        data = resp.json()
-        push_log(job_id, f"Response keys: {list(data.keys())}", "info")
-
-        job_sora_id = (
-            data.get("id")
-            or data.get("generation_id")
-            or (data.get("data") or [{}])[0].get("id")
-        )
-        if not job_sora_id:
-            raise RuntimeError(f"No job ID in response: {str(data)[:200]}")
-
-        push_log(job_id, f"Job queued → id={job_sora_id}", "info")
-
-        video_url = None
-        for attempt in range(180):
-            time.sleep(5)
-            # Correct poll endpoint: GET /v1/videos/{id}
-            poll = requests.get(
-                f"https://api.openai.com/v1/videos/{job_sora_id}",
-                headers=headers,
-                timeout=30,
+        if status in ("completed", "succeeded"):
+            video_url = (
+                sd.get("url")
+                or sd.get("video_url")
+                or (sd.get("data") or [{}])[0].get("url")
+                or (sd.get("generations") or [{}])[0].get("url")
             )
-            if not poll.ok:
-                push_log(job_id, f"Poll error {poll.status_code}: {poll.text[:200]}", "error")
-                raise RuntimeError(f"Poll failed: {poll.status_code}")
+            push_log(job_id, f"Completed! url={bool(video_url)}", "success")
+            break
+        elif status in ("failed", "cancelled", "error"):
+            err_detail = sd.get("error") or sd.get("message") or str(sd)[:200]
+            raise RuntimeError(f"Sora job {status}: {err_detail}")
 
-            sd = poll.json()
-            status = sd.get("status", "unknown")
-            if attempt % 6 == 0:
-                push_log(job_id, f"Status: {status} ({attempt*5}s elapsed)", "info")
+    push_log(job_id, "Video generated ✓", "success")
 
-            if status in ("completed", "succeeded"):
-                video_url = (
-                    sd.get("url")
-                    or sd.get("video_url")
-                    or (sd.get("data") or [{}])[0].get("url")
-                    or (sd.get("generations") or [{}])[0].get("url")
-                )
-                push_log(job_id, f"Completed! url={bool(video_url)}", "success")
-                break
-            elif status in ("failed", "cancelled", "error"):
-                err_detail = sd.get("error") or sd.get("message") or str(sd)[:200]
-                raise RuntimeError(f"Sora job {status}: {err_detail}")
+    push_step(job_id, 2)
+    push_log(job_id, "Downloading video...", "step")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    video_path = OUTPUT_DIR / f"sora_{timestamp}.mp4"
 
-        push_log(job_id, "Video generated ✓", "success")
+    if video_url:
+        r = requests.get(video_url, stream=True, timeout=120)
+        r.raise_for_status()
+        with open(video_path, "wb") as f:
+            for chunk in r.iter_content(8192): f.write(chunk)
+    else:
+        # Fallback: fetch content directly
+        cr = requests.get(f"https://api.openai.com/v1/videos/{job_sora_id}/content", headers=headers, stream=True, timeout=120)
+        cr.raise_for_status()
+        with open(video_path, "wb") as f:
+            for chunk in cr.iter_content(8192): f.write(chunk)
 
-        push_step(job_id, 2)
-        push_log(job_id, "Downloading video...", "step")
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        video_path = OUTPUT_DIR / f"sora_{timestamp}.mp4"
+    jobs[job_id]["video_path"] = str(video_path)
+    push_log(job_id, f"Saved → {video_path.name}", "success")
 
-        if video_url:
-            r = requests.get(video_url, stream=True, timeout=120)
-            r.raise_for_status()
-            with open(video_path, "wb") as f:
-                for chunk in r.iter_content(8192): f.write(chunk)
+    if dry_run:
+        push_step(job_id, 3)
+        push_log(job_id, "Dry run — skipping upload", "accent")
+        push_step(job_id, 4)
+        push_log(job_id, "Done (dry run) ✓", "success")
+    else:
+        push_step(job_id, 3)
+        push_log(job_id, "Starting TikTok upload...", "step")
+        # Use official API if connected, otherwise use cookie + proxy method
+        token_file = Path("/tmp/tiktok_token.json")
+        if token_file.exists():
+            push_log(job_id, "Using TikTok Official Content Posting API...", "info")
+            publish_id = tiktok_post_video(video_path, caption, hashtags, product_id)
+            push_log(job_id, f"Video uploaded → publish_id={publish_id}", "info")
+            push_log(job_id, "Waiting for TikTok to process video...", "info")
+            import time as _time
+            for _ in range(20):
+                _time.sleep(5)
+                status = tiktok_check_post_status(publish_id)
+                post_status = status.get("data", {}).get("status", "unknown")
+                push_log(job_id, f"Post status: {post_status}", "info")
+                if post_status in ("PUBLISH_COMPLETE", "SUCCESS"):
+                    break
+                elif post_status in ("FAILED", "ERROR"):
+                    raise RuntimeError(f"TikTok post failed: {status}")
         else:
-            # Fallback: fetch content directly
-            cr = requests.get(f"https://api.openai.com/v1/videos/{job_sora_id}/content", headers=headers, stream=True, timeout=120)
-            cr.raise_for_status()
-            with open(video_path, "wb") as f:
-                for chunk in cr.iter_content(8192): f.write(chunk)
-
-        jobs[job_id]["video_path"] = str(video_path)
-        push_log(job_id, f"Saved → {video_path.name}", "success")
-
-        if dry_run:
-            push_step(job_id, 3)
-            push_log(job_id, "Dry run — skipping upload", "accent")
-            push_step(job_id, 4)
-            push_log(job_id, "Done (dry run) ✓", "success")
-        else:
-            push_step(job_id, 3)
-            push_log(job_id, "Starting TikTok upload...", "step")
-            # Use official API if connected, otherwise use cookie + proxy method
-            token_file = Path("/tmp/tiktok_token.json")
-            if token_file.exists():
-                push_log(job_id, "Using TikTok Official Content Posting API...", "info")
-                publish_id = tiktok_post_video(video_path, caption, hashtags, product_id)
-                push_log(job_id, f"Video uploaded → publish_id={publish_id}", "info")
-                push_log(job_id, "Waiting for TikTok to process video...", "info")
-                import time as _time
-                for _ in range(20):
-                    _time.sleep(5)
-                    status = tiktok_check_post_status(publish_id)
-                    post_status = status.get("data", {}).get("status", "unknown")
-                    push_log(job_id, f"Post status: {post_status}", "info")
-                    if post_status in ("PUBLISH_COMPLETE", "SUCCESS"):
-                        break
-                    elif post_status in ("FAILED", "ERROR"):
-                        raise RuntimeError(f"TikTok post failed: {status}")
+            # Cookie + residential proxy method
+            if not PROXY_URL:
+                raise RuntimeError("Neither TikTok API connected nor PROXY_URL set. Visit /tiktok/connect or add PROXY_URL to Railway Variables.")
+            push_log(job_id, "Using cookie + proxy method...", "info")
+            try:
+                from tiktok_uploader.upload import TikTokUploader
+            except ImportError:
+                raise RuntimeError("tiktok-uploader not installed.")
+            proxy_parts = PROXY_URL.replace("http://", "").replace("https://", "")
+            if "@" in proxy_parts:
+                creds, host_port = proxy_parts.rsplit("@", 1)
+                proxy_user, proxy_pass = creds.split(":", 1)
+                proxy_host, proxy_port = host_port.rsplit(":", 1)
+                proxy = {"user": proxy_user, "pass": proxy_pass, "host": proxy_host, "port": proxy_port}
             else:
-                # Cookie + residential proxy method
-                if not PROXY_URL:
-                    raise RuntimeError("Neither TikTok API connected nor PROXY_URL set. Visit /tiktok/connect or add PROXY_URL to Railway Variables.")
-                push_log(job_id, "Using cookie + proxy method...", "info")
-                try:
-                    from tiktok_uploader.upload import TikTokUploader
-                except ImportError:
-                    raise RuntimeError("tiktok-uploader not installed.")
-                proxy_parts = PROXY_URL.replace("http://", "").replace("https://", "")
-                if "@" in proxy_parts:
-                    creds, host_port = proxy_parts.rsplit("@", 1)
-                    proxy_user, proxy_pass = creds.split(":", 1)
-                    proxy_host, proxy_port = host_port.rsplit(":", 1)
-                    proxy = {"user": proxy_user, "pass": proxy_pass, "host": proxy_host, "port": proxy_port}
-                else:
-                    proxy_host, proxy_port = proxy_parts.rsplit(":", 1)
-                    proxy = {"host": proxy_host, "port": proxy_port}
-                push_log(job_id, f"Proxy: {proxy.get('host')}:{proxy.get('port')}", "info")
-                cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID, "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
-                hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
-                full_desc = f"{caption} {hashtag_str}".strip()
-                uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy)
-                video_kwargs = dict(description=full_desc)
-                if product_id:
-                    video_kwargs["product_id"] = product_id
-                push_log(job_id, "Uploading via Playwright + proxy...", "info")
-                uploader.upload_video(str(video_path), **video_kwargs)
-            push_step(job_id, 4)
-            push_log(job_id, "Posted to TikTok ✓ — check your profile AND drafts", "success")
+                proxy_host, proxy_port = proxy_parts.rsplit(":", 1)
+                proxy = {"host": proxy_host, "port": proxy_port}
+            push_log(job_id, f"Proxy: {proxy.get('host')}:{proxy.get('port')}", "info")
+            cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID, "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
+            hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+            full_desc = f"{caption} {hashtag_str}".strip()
+            uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy)
+            video_kwargs = dict(description=full_desc)
+            if product_id:
+                video_kwargs["product_id"] = product_id
+            push_log(job_id, "Uploading via Playwright + proxy...", "info")
+            uploader.upload_video(str(video_path), **video_kwargs)
+        push_step(job_id, 4)
+        push_log(job_id, "Posted to TikTok ✓ — check your profile AND drafts", "success")
 
-        jobs[job_id]["status"] = "done"
-        push_log(job_id, "── Pipeline complete ──", "done")
-        if job_id in job_queues:
-            job_queues[job_id].put({"done": True})
+    jobs[job_id]["status"] = "done"
+    push_log(job_id, "── Pipeline complete ──", "done")
+    if job_id in job_queues:
+        job_queues[job_id].put({"done": True})
 
-    except Exception as e:
-        jobs[job_id]["status"] = "error"
-        jobs[job_id]["error"] = str(e)
-        push_log(job_id, f"Error: {e}", "error")
-        log.exception(f"Pipeline error for job {job_id}")
-        if job_id in job_queues:
-            job_queues[job_id].put({"done": True, "error": str(e)})
-
+except Exception as e:
+    jobs[job_id]["status"] = "error"
+    jobs[job_id]["error"] = str(e)
+    push_log(job_id, f"Error: {e}", "error")
+    log.exception(f"Pipeline error for job {job_id}")
+    if job_id in job_queues:
+        job_queues[job_id].put({"done": True, "error": str(e)})
+```
 
 # ── HTML (embedded) ────────────────────────────────────────────────────────
-HTML = r"""<!DOCTYPE html>
+
+HTML = r”””<!DOCTYPE html>
+
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -577,16 +582,10 @@ let hashtags=[],presets=[],currentJobId=null,isRunning=false,schedulerInterval=n
 document.addEventListener('DOMContentLoaded',async()=>{
   try {
     const cfg = await fetch('/api/check-config').then(r=>r.json());
-    const tt = await fetch('/tiktok/status').then(r=>r.json());
-    if (!tt.connected) {
-      setTimeout(()=>toast('⚠ TikTok not connected — tap to authorize'),500);
-      setTimeout(()=>{
-        if(confirm('TikTok not connected. Open authorization page now?')) {
-          window.open('/tiktok/connect','_blank');
-        }
-      }, 1200);
-    } else if (tt.needs_refresh) {
-      setTimeout(()=>toast('⚠ TikTok token expiring soon — reconnect at /tiktok/connect'),500);
+    if (!cfg.PROXY_URL || cfg.PROXY_URL === 'NOT SET') {
+      if (!cfg.TIKTOK_API_CONNECTED) {
+        setTimeout(()=>toast('⚠ Add PROXY_URL to Railway Variables to enable posting'),500);
+      }
     }
   } catch(e) {}
   setupChipInput();
@@ -640,310 +639,308 @@ function finishRun(success){isRunning=false;const btn=document.getElementById('r
 function setupScheduler(){if(!document.getElementById('scheduleOn').checked)return;const timeStr=document.getElementById('scheduleTime').value||'09:00';const[hour,min]=timeStr.split(':').map(Number);if(schedulerInterval)clearInterval(schedulerInterval);schedulerInterval=setInterval(()=>{const now=new Date();if(now.getHours()===hour&&now.getMinutes()===min&&!isRunning){addLog(`Scheduled run triggered at ${timeStr}`,'accent');runPipeline();}},60*1000);toast(`Scheduler set for ${timeStr} daily`);}
 
 async function testTikTok() {
-  if (isRunning) return;
-  const caption = document.getElementById('caption').value.trim() || 'Test post';
-  isRunning = true;
-  clearLog();
-  resetSteps();
-  setStatus('running', 'testing');
-  const btn = document.getElementById('testBtn');
-  btn.textContent = '⏳ Testing...';
-  btn.disabled = true;
-  document.getElementById('runBtn').disabled = true;
-  addLog('TikTok-only test (skipping Sora)...', 'accent');
-  try {
-    const res = await fetch('/api/test-tiktok', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        caption,
-        hashtags: [...hashtags],
-        product_id: document.getElementById('productId').value.trim(),
-        custom_video_path: window._uploadedTestVideoPath || '',
-      }),
-    });
-    const data = await res.json();
-    if (data.error) { addLog(data.error, 'error'); setStatus('error','error'); finishTest(false); return; }
-    currentJobId = data.job_id;
-    const evtSource = new EventSource(`/api/stream/${currentJobId}`);
-    evtSource.onmessage = (e) => {
-      const entry = JSON.parse(e.data);
-      if (entry.ping) return;
-      if (entry.step !== undefined) { setStep(entry.step); return; }
-      if (entry.done) {
-        evtSource.close();
-        if (entry.error) { setStatus('error','error'); finishTest(false); }
-        else { allDone(); setStatus('done','done ✓'); finishTest(true); }
-        return;
-      }
-      if (entry.msg) addLog(entry.msg, entry.level || 'info');
-    };
-    evtSource.onerror = () => { evtSource.close(); addLog('Connection lost','error'); setStatus('error','error'); finishTest(false); };
-  } catch(err) { addLog(`Error: ${err.message}`,'error'); setStatus('error','error'); finishTest(false); }
+if (isRunning) return;
+const caption = document.getElementById(‘caption’).value.trim() || ‘Test post’;
+isRunning = true;
+clearLog();
+resetSteps();
+setStatus(‘running’, ‘testing’);
+const btn = document.getElementById(‘testBtn’);
+btn.textContent = ‘⏳ Testing…’;
+btn.disabled = true;
+document.getElementById(‘runBtn’).disabled = true;
+addLog(‘TikTok-only test (skipping Sora)…’, ‘accent’);
+try {
+const res = await fetch(’/api/test-tiktok’, {
+method: ‘POST’,
+headers: {‘Content-Type’: ‘application/json’},
+body: JSON.stringify({
+caption,
+hashtags: […hashtags],
+product_id: document.getElementById(‘productId’).value.trim(),
+custom_video_path: window._uploadedTestVideoPath || ‘’,
+}),
+});
+const data = await res.json();
+if (data.error) { addLog(data.error, ‘error’); setStatus(‘error’,‘error’); finishTest(false); return; }
+currentJobId = data.job_id;
+const evtSource = new EventSource(`/api/stream/${currentJobId}`);
+evtSource.onmessage = (e) => {
+const entry = JSON.parse(e.data);
+if (entry.ping) return;
+if (entry.step !== undefined) { setStep(entry.step); return; }
+if (entry.done) {
+evtSource.close();
+if (entry.error) { setStatus(‘error’,‘error’); finishTest(false); }
+else { allDone(); setStatus(‘done’,‘done ✓’); finishTest(true); }
+return;
+}
+if (entry.msg) addLog(entry.msg, entry.level || ‘info’);
+};
+evtSource.onerror = () => { evtSource.close(); addLog(‘Connection lost’,‘error’); setStatus(‘error’,‘error’); finishTest(false); };
+} catch(err) { addLog(`Error: ${err.message}`,‘error’); setStatus(‘error’,‘error’); finishTest(false); }
 }
 
 function finishTest(success) {
-  isRunning = false;
-  const btn = document.getElementById('testBtn');
-  btn.disabled = false;
-  btn.textContent = success ? '✓ TikTok Test Passed!' : '📷 Test TikTok Upload Only';
-  document.getElementById('runBtn').disabled = false;
-  if (success) setTimeout(() => { btn.textContent = '📷 Test TikTok Upload Only'; setStatus('idle','idle'); }, 5000);
+isRunning = false;
+const btn = document.getElementById(‘testBtn’);
+btn.disabled = false;
+btn.textContent = success ? ‘✓ TikTok Test Passed!’ : ‘📷 Test TikTok Upload Only’;
+document.getElementById(‘runBtn’).disabled = false;
+if (success) setTimeout(() => { btn.textContent = ‘📷 Test TikTok Upload Only’; setStatus(‘idle’,‘idle’); }, 5000);
 }
-
 
 async function handleVideoFile(input) {
-  const file = input.files[0];
-  if (!file) return;
-  const label = document.getElementById('testVideoLabel');
-  label.textContent = '⏳ Uploading ' + file.name + '...';
-  label.style.color = 'var(--muted2)';
-  const fd = new FormData();
-  fd.append('file', file);
-  try {
-    const res = await fetch('/api/upload-test-video', { method: 'POST', body: fd });
-    const data = await res.json();
-    if (data.ok) {
-      window._uploadedTestVideoPath = data.path;
-      label.textContent = '✓ ' + data.filename + ' ready to use';
-      label.style.color = 'var(--cyan)';
-      label.style.borderColor = 'rgba(87,255,196,0.4)';
-    } else {
-      label.textContent = '✗ ' + (data.error || 'Upload failed');
-      label.style.color = 'var(--red)';
-    }
-  } catch(e) {
-    label.textContent = '✗ ' + e.message;
-    label.style.color = 'var(--red)';
-  }
+const file = input.files[0];
+if (!file) return;
+const label = document.getElementById(‘testVideoLabel’);
+label.textContent = ‘⏳ Uploading ’ + file.name + ‘…’;
+label.style.color = ‘var(–muted2)’;
+const fd = new FormData();
+fd.append(‘file’, file);
+try {
+const res = await fetch(’/api/upload-test-video’, { method: ‘POST’, body: fd });
+const data = await res.json();
+if (data.ok) {
+window._uploadedTestVideoPath = data.path;
+label.textContent = ‘✓ ’ + data.filename + ’ ready to use’;
+label.style.color = ‘var(–cyan)’;
+label.style.borderColor = ‘rgba(87,255,196,0.4)’;
+} else {
+label.textContent = ‘✗ ’ + (data.error || ‘Upload failed’);
+label.style.color = ‘var(–red)’;
+}
+} catch(e) {
+label.textContent = ‘✗ ’ + e.message;
+label.style.color = ‘var(–red)’;
+}
 }
 function copyLog() {
-  const lines = [...document.getElementById('log').querySelectorAll('.log-line')]
-    .map(el => el.textContent).join('\n');
-  const btn = document.getElementById('copyLogBtn');
-  function flash() {
-    btn.textContent = 'copied!';
-    btn.style.color = 'var(--cyan)';
-    setTimeout(() => { btn.textContent = 'copy'; btn.style.color = ''; }, 2000);
-  }
-  if (navigator.clipboard && navigator.clipboard.writeText) {
-    navigator.clipboard.writeText(lines).then(flash).catch(() => fallbackCopy(lines, flash));
-  } else { fallbackCopy(lines, flash); }
+const lines = […document.getElementById(‘log’).querySelectorAll(’.log-line’)]
+.map(el => el.textContent).join(’\n’);
+const btn = document.getElementById(‘copyLogBtn’);
+function flash() {
+btn.textContent = ‘copied!’;
+btn.style.color = ‘var(–cyan)’;
+setTimeout(() => { btn.textContent = ‘copy’; btn.style.color = ‘’; }, 2000);
+}
+if (navigator.clipboard && navigator.clipboard.writeText) {
+navigator.clipboard.writeText(lines).then(flash).catch(() => fallbackCopy(lines, flash));
+} else { fallbackCopy(lines, flash); }
 }
 function fallbackCopy(text, cb) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
-  document.body.appendChild(ta);
-  ta.focus(); ta.select();
-  try { document.execCommand('copy'); cb(); } catch(e) { alert('Copy failed — long press the log to copy manually'); }
-  document.body.removeChild(ta);
+const ta = document.createElement(‘textarea’);
+ta.value = text;
+ta.style.cssText = ‘position:fixed;top:-9999px;left:-9999px;’;
+document.body.appendChild(ta);
+ta.focus(); ta.select();
+try { document.execCommand(‘copy’); cb(); } catch(e) { alert(‘Copy failed — long press the log to copy manually’); }
+document.body.removeChild(ta);
 }
-function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.remove());const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),2500);}
+function toast(msg){document.querySelectorAll(’.toast’).forEach(t=>t.remove());const el=document.createElement(‘div’);el.className=‘toast’;el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),2500);}
 </script>
+
 </body>
 </html>"""
 
-
 # ── Routes ─────────────────────────────────────────────────────────────────
 
-@app.route("/")
+@app.route(”/”)
 def index():
-    return HTML
+return HTML
 
-@app.route("/api/run", methods=["POST"])
+@app.route(”/api/run”, methods=[“POST”])
 def api_run():
-    if APP_SECRET and request.headers.get("X-App-Secret") != APP_SECRET:
-        return jsonify({"error": "Unauthorized"}), 401
-    body = request.get_json() or {}
-    prompt     = body.get("prompt", "").strip()
-    caption    = body.get("caption", "").strip()
-    hashtags   = body.get("hashtags", [])
-    product_id = body.get("product_id", "").strip() or None
-    dry_run    = body.get("dry_run", False)
-    model      = body.get("model", "sora-2")
-    duration   = body.get("duration", 10)
-    if not prompt:   return jsonify({"error": "prompt is required"}), 400
-    if not caption:  return jsonify({"error": "caption is required"}), 400
-    if not OPENAI_API_KEY: return jsonify({"error": "OPENAI_API_KEY not set on server"}), 500
-    job_id = new_job_id()
-    jobs[job_id] = {"status": "starting", "logs": [], "step": 0, "video_path": None, "error": None}
-    job_queues[job_id] = queue.Queue()
-    threading.Thread(target=run_pipeline, args=(job_id, prompt, caption, hashtags, product_id, dry_run, model, duration), daemon=True).start()
-    return jsonify({"job_id": job_id})
+if APP_SECRET and request.headers.get(“X-App-Secret”) != APP_SECRET:
+return jsonify({“error”: “Unauthorized”}), 401
+body = request.get_json() or {}
+prompt     = body.get(“prompt”, “”).strip()
+caption    = body.get(“caption”, “”).strip()
+hashtags   = body.get(“hashtags”, [])
+product_id = body.get(“product_id”, “”).strip() or None
+dry_run    = body.get(“dry_run”, False)
+model      = body.get(“model”, “sora-2”)
+duration   = body.get(“duration”, 10)
+if not prompt:   return jsonify({“error”: “prompt is required”}), 400
+if not caption:  return jsonify({“error”: “caption is required”}), 400
+if not OPENAI_API_KEY: return jsonify({“error”: “OPENAI_API_KEY not set on server”}), 500
+job_id = new_job_id()
+jobs[job_id] = {“status”: “starting”, “logs”: [], “step”: 0, “video_path”: None, “error”: None}
+job_queues[job_id] = queue.Queue()
+threading.Thread(target=run_pipeline, args=(job_id, prompt, caption, hashtags, product_id, dry_run, model, duration), daemon=True).start()
+return jsonify({“job_id”: job_id})
 
-@app.route("/api/stream/<job_id>")
+@app.route(”/api/stream/<job_id>”)
 def api_stream(job_id):
-    if job_id not in jobs:
-        return jsonify({"error": "job not found"}), 404
-    def generate():
-        for entry in jobs[job_id].get("logs", []):
-            yield f"data: {json.dumps(entry)}\n\n"
-        q = job_queues.get(job_id)
-        if not q: return
-        while True:
-            try:
-                entry = q.get(timeout=30)
-                yield f"data: {json.dumps(entry)}\n\n"
-                if entry.get("done"): break
-            except queue.Empty:
-                yield 'data: {"ping":true}\n\n'
-    return Response(generate(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+if job_id not in jobs:
+return jsonify({“error”: “job not found”}), 404
+def generate():
+for entry in jobs[job_id].get(“logs”, []):
+yield f”data: {json.dumps(entry)}\n\n”
+q = job_queues.get(job_id)
+if not q: return
+while True:
+try:
+entry = q.get(timeout=30)
+yield f”data: {json.dumps(entry)}\n\n”
+if entry.get(“done”): break
+except queue.Empty:
+yield ‘data: {“ping”:true}\n\n’
+return Response(generate(), mimetype=“text/event-stream”, headers={“Cache-Control”: “no-cache”, “X-Accel-Buffering”: “no”})
 
-@app.route("/api/job/<job_id>")
+@app.route(”/api/job/<job_id>”)
 def api_job(job_id):
-    if job_id not in jobs: return jsonify({"error": "not found"}), 404
-    j = jobs[job_id]
-    return jsonify({"status": j["status"], "step": j.get("step", 0), "error": j.get("error"), "has_video": j.get("video_path") is not None})
+if job_id not in jobs: return jsonify({“error”: “not found”}), 404
+j = jobs[job_id]
+return jsonify({“status”: j[“status”], “step”: j.get(“step”, 0), “error”: j.get(“error”), “has_video”: j.get(“video_path”) is not None})
 
-@app.route("/api/presets", methods=["GET"])
+@app.route(”/api/presets”, methods=[“GET”])
 def get_presets():
-    f = Path("/tmp/presets.json")
-    return jsonify(json.loads(f.read_text()) if f.exists() else [])
+f = Path(”/tmp/presets.json”)
+return jsonify(json.loads(f.read_text()) if f.exists() else [])
 
-@app.route("/api/presets", methods=["POST"])
+@app.route(”/api/presets”, methods=[“POST”])
 def save_preset():
-    f = Path("/tmp/presets.json")
-    presets = json.loads(f.read_text()) if f.exists() else []
-    presets.append(request.get_json() or {})
-    f.write_text(json.dumps(presets))
-    return jsonify({"ok": True})
+f = Path(”/tmp/presets.json”)
+presets = json.loads(f.read_text()) if f.exists() else []
+presets.append(request.get_json() or {})
+f.write_text(json.dumps(presets))
+return jsonify({“ok”: True})
 
-@app.route("/api/presets/<int:idx>", methods=["DELETE"])
+@app.route(”/api/presets/<int:idx>”, methods=[“DELETE”])
 def delete_preset(idx):
-    f = Path("/tmp/presets.json")
-    presets = json.loads(f.read_text()) if f.exists() else []
-    if 0 <= idx < len(presets): presets.pop(idx)
-    f.write_text(json.dumps(presets))
-    return jsonify({"ok": True})
+f = Path(”/tmp/presets.json”)
+presets = json.loads(f.read_text()) if f.exists() else []
+if 0 <= idx < len(presets): presets.pop(idx)
+f.write_text(json.dumps(presets))
+return jsonify({“ok”: True})
 
-
-
-@app.route("/api/upload-test-video", methods=["POST"])
+@app.route(”/api/upload-test-video”, methods=[“POST”])
 def upload_test_video():
-    """Accept a user-uploaded video file for TikTok testing."""
-    if "file" not in request.files:
-        return jsonify({"error": "No file provided"}), 400
-    f = request.files["file"]
-    if not f.filename:
-        return jsonify({"error": "Empty filename"}), 400
-    save_path = OUTPUT_DIR / f"uploaded_test_{f.filename}"
-    f.save(str(save_path))
-    return jsonify({"ok": True, "path": str(save_path), "filename": f.filename})
+“”“Accept a user-uploaded video file for TikTok testing.”””
+if “file” not in request.files:
+return jsonify({“error”: “No file provided”}), 400
+f = request.files[“file”]
+if not f.filename:
+return jsonify({“error”: “Empty filename”}), 400
+save_path = OUTPUT_DIR / f”uploaded_test_{f.filename}”
+f.save(str(save_path))
+return jsonify({“ok”: True, “path”: str(save_path), “filename”: f.filename})
 
-@app.route("/api/test-tiktok", methods=["POST"])
+@app.route(”/api/test-tiktok”, methods=[“POST”])
 def api_test_tiktok():
-    """Test TikTok upload only — skips Sora, uses a tiny dummy video."""
-    body = request.get_json() or {}
-    caption    = body.get("caption", "Test post").strip()
-    hashtags   = body.get("hashtags", [])
-    product_id = body.get("product_id", "").strip() or None
+“”“Test TikTok upload only — skips Sora, uses a tiny dummy video.”””
+body = request.get_json() or {}
+caption    = body.get(“caption”, “Test post”).strip()
+hashtags   = body.get(“hashtags”, [])
+product_id = body.get(“product_id”, “”).strip() or None
 
-    job_id = new_job_id()
-    jobs[job_id] = {"status": "starting", "logs": [], "step": 0, "video_path": None, "error": None}
-    job_queues[job_id] = queue.Queue()
+```
+job_id = new_job_id()
+jobs[job_id] = {"status": "starting", "logs": [], "step": 0, "video_path": None, "error": None}
+job_queues[job_id] = queue.Queue()
 
-    custom_video = body.get("custom_video_path", "").strip() or None
+custom_video = body.get("custom_video_path", "").strip() or None
 
-    def run_tiktok_test():
-        try:
-            jobs[job_id]["status"] = "running"
-            push_step(job_id, 3)
+def run_tiktok_test():
+    try:
+        jobs[job_id]["status"] = "running"
+        push_step(job_id, 3)
 
-            if custom_video and Path(custom_video).exists():
-                video_path_to_use = Path(custom_video)
-                push_log(job_id, f"Using uploaded video: {video_path_to_use.name}", "step")
+        if custom_video and Path(custom_video).exists():
+            video_path_to_use = Path(custom_video)
+            push_log(job_id, f"Using uploaded video: {video_path_to_use.name}", "step")
+        else:
+            push_log(job_id, "TikTok test — creating dummy video...", "step")
+            dummy_path = OUTPUT_DIR / f"dummy_{job_id}.mp4"
+            dummy_path.write_bytes(_make_dummy_mp4())
+            push_log(job_id, f"Dummy video created → {dummy_path.name}", "info")
+            video_path_to_use = dummy_path
+
+        jobs[job_id]["video_path"] = str(video_path_to_use)
+
+        push_log(job_id, "Starting TikTok upload...", "step")
+        token_file = Path("/tmp/tiktok_token.json")
+        if token_file.exists():
+            push_log(job_id, "Using TikTok Official Content Posting API...", "info")
+            publish_id = tiktok_post_video(video_path_to_use, caption, hashtags, product_id)
+            push_log(job_id, f"Video uploaded → publish_id={publish_id}", "info")
+            import time as _time
+            for _ in range(20):
+                _time.sleep(5)
+                status = tiktok_check_post_status(publish_id)
+                post_status = status.get("data", {}).get("status", "unknown")
+                push_log(job_id, f"Post status: {post_status}", "info")
+                if post_status in ("PUBLISH_COMPLETE", "SUCCESS"):
+                    break
+                elif post_status in ("FAILED", "ERROR"):
+                    raise RuntimeError(f"TikTok post failed: {status}")
+        else:
+            if not PROXY_URL:
+                raise RuntimeError("Neither TikTok API connected nor PROXY_URL set. Visit /tiktok/connect or add PROXY_URL.")
+            push_log(job_id, "Using cookie + proxy method...", "info")
+            try:
+                from tiktok_uploader.upload import TikTokUploader
+            except ImportError:
+                raise RuntimeError("tiktok-uploader not installed.")
+            proxy_parts = PROXY_URL.replace("http://", "").replace("https://", "")
+            if "@" in proxy_parts:
+                creds, host_port = proxy_parts.rsplit("@", 1)
+                proxy_user, proxy_pass = creds.split(":", 1)
+                proxy_host, proxy_port = host_port.rsplit(":", 1)
+                proxy = {"user": proxy_user, "pass": proxy_pass, "host": proxy_host, "port": proxy_port}
             else:
-                push_log(job_id, "TikTok test — creating dummy video...", "step")
-                dummy_path = OUTPUT_DIR / f"dummy_{job_id}.mp4"
-                dummy_path.write_bytes(_make_dummy_mp4())
-                push_log(job_id, f"Dummy video created → {dummy_path.name}", "info")
-                video_path_to_use = dummy_path
+                proxy_host, proxy_port = proxy_parts.rsplit(":", 1)
+                proxy = {"host": proxy_host, "port": proxy_port}
+            push_log(job_id, f"Proxy: {proxy.get('host')}:{proxy.get('port')}", "info")
+            cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID, "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
+            hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+            full_desc = f"{caption} {hashtag_str}".strip()
+            uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy)
+            video_kwargs = dict(description=full_desc)
+            if product_id:
+                video_kwargs["product_id"] = product_id
+            push_log(job_id, "Uploading via Playwright + proxy...", "info")
+            uploader.upload_video(str(video_path_to_use), **video_kwargs)
+        push_step(job_id, 4)
+        push_log(job_id, "Posted to TikTok ✓", "success")
+        jobs[job_id]["status"] = "done"
+        push_log(job_id, "── TikTok test complete ──", "done")
+        if job_id in job_queues:
+            job_queues[job_id].put({"done": True})
+    except Exception as e:
+        jobs[job_id]["status"] = "error"
+        jobs[job_id]["error"] = str(e)
+        push_log(job_id, f"Error: {e}", "error")
+        if job_id in job_queues:
+            job_queues[job_id].put({"done": True, "error": str(e)})
 
-            jobs[job_id]["video_path"] = str(video_path_to_use)
+threading.Thread(target=run_tiktok_test, daemon=True).start()
+return jsonify({"job_id": job_id})
+```
 
-            push_log(job_id, "Starting TikTok upload...", "step")
-            token_file = Path("/tmp/tiktok_token.json")
-            if token_file.exists():
-                push_log(job_id, "Using TikTok Official Content Posting API...", "info")
-                publish_id = tiktok_post_video(video_path_to_use, caption, hashtags, product_id)
-                push_log(job_id, f"Video uploaded → publish_id={publish_id}", "info")
-                import time as _time
-                for _ in range(20):
-                    _time.sleep(5)
-                    status = tiktok_check_post_status(publish_id)
-                    post_status = status.get("data", {}).get("status", "unknown")
-                    push_log(job_id, f"Post status: {post_status}", "info")
-                    if post_status in ("PUBLISH_COMPLETE", "SUCCESS"):
-                        break
-                    elif post_status in ("FAILED", "ERROR"):
-                        raise RuntimeError(f"TikTok post failed: {status}")
-            else:
-                if not PROXY_URL:
-                    raise RuntimeError("Neither TikTok API connected nor PROXY_URL set. Visit /tiktok/connect or add PROXY_URL.")
-                push_log(job_id, "Using cookie + proxy method...", "info")
-                try:
-                    from tiktok_uploader.upload import TikTokUploader
-                except ImportError:
-                    raise RuntimeError("tiktok-uploader not installed.")
-                proxy_parts = PROXY_URL.replace("http://", "").replace("https://", "")
-                if "@" in proxy_parts:
-                    creds, host_port = proxy_parts.rsplit("@", 1)
-                    proxy_user, proxy_pass = creds.split(":", 1)
-                    proxy_host, proxy_port = host_port.rsplit(":", 1)
-                    proxy = {"user": proxy_user, "pass": proxy_pass, "host": proxy_host, "port": proxy_port}
-                else:
-                    proxy_host, proxy_port = proxy_parts.rsplit(":", 1)
-                    proxy = {"host": proxy_host, "port": proxy_port}
-                push_log(job_id, f"Proxy: {proxy.get('host')}:{proxy.get('port')}", "info")
-                cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID, "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
-                hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
-                full_desc = f"{caption} {hashtag_str}".strip()
-                uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy)
-                video_kwargs = dict(description=full_desc)
-                if product_id:
-                    video_kwargs["product_id"] = product_id
-                push_log(job_id, "Uploading via Playwright + proxy...", "info")
-                uploader.upload_video(str(video_path_to_use), **video_kwargs)
-            push_step(job_id, 4)
-            push_log(job_id, "Posted to TikTok ✓", "success")
-            jobs[job_id]["status"] = "done"
-            push_log(job_id, "── TikTok test complete ──", "done")
-            if job_id in job_queues:
-                job_queues[job_id].put({"done": True})
-        except Exception as e:
-            jobs[job_id]["status"] = "error"
-            jobs[job_id]["error"] = str(e)
-            push_log(job_id, f"Error: {e}", "error")
-            if job_id in job_queues:
-                job_queues[job_id].put({"done": True, "error": str(e)})
-
-    threading.Thread(target=run_tiktok_test, daemon=True).start()
-    return jsonify({"job_id": job_id})
-
-
-@app.route("/api/check-config")
+@app.route(”/api/check-config”)
 def check_config():
-    import time
-    token_file = Path("/tmp/tiktok_token.json")
-    tiktok_connected = token_file.exists()
-    return jsonify({
-        "OPENAI_API_KEY": "set" if OPENAI_API_KEY else "NOT SET",
-        "TIKTOK_SESSION_ID": f"set ({len(TIKTOK_SESSION_ID)} chars)" if TIKTOK_SESSION_ID else "NOT SET",
-        "PROXY_URL": "set" if PROXY_URL else "NOT SET",
-        "TIKTOK_API_CONNECTED": tiktok_connected,
-        "tip": "Visit /tiktok/connect to authorize TikTok, or set PROXY_URL + TIKTOK_SESSION_ID for cookie-based posting"
-    })
-
+import time
+token_file = Path(”/tmp/tiktok_token.json”)
+tiktok_connected = token_file.exists()
+return jsonify({
+“OPENAI_API_KEY”: “set” if OPENAI_API_KEY else “NOT SET”,
+“TIKTOK_SESSION_ID”: f”set ({len(TIKTOK_SESSION_ID)} chars)” if TIKTOK_SESSION_ID else “NOT SET”,
+“PROXY_URL”: “set” if PROXY_URL else “NOT SET”,
+“TIKTOK_API_CONNECTED”: tiktok_connected,
+“tip”: “Visit /tiktok/connect to authorize TikTok, or set PROXY_URL + TIKTOK_SESSION_ID for cookie-based posting”
+})
 
 # ── TikTok OAuth Routes ────────────────────────────────────────────────────────
 
-@app.route("/tiktok/connect")
+@app.route(”/tiktok/connect”)
 def tiktok_connect():
-    """Redirect user to TikTok OAuth."""
-    if not TIKTOK_CLIENT_KEY:
-        return "TIKTOK_CLIENT_KEY not set in Railway Variables", 500
-    return f'''<!DOCTYPE html>
+“”“Redirect user to TikTok OAuth.”””
+if not TIKTOK_CLIENT_KEY:
+return “TIKTOK_CLIENT_KEY not set in Railway Variables”, 500
+return f’’’<!DOCTYPE html>
+
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{{font-family:monospace;background:#080810;color:#f0f0f8;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:20px;padding:20px;text-align:center}}
 a{{display:block;padding:16px 32px;background:#c8ff57;color:#080810;border-radius:12px;font-weight:bold;text-decoration:none;font-size:1rem;letter-spacing:0.1em}}</style></head>
@@ -954,23 +951,26 @@ a{{display:block;padding:16px 32px;background:#c8ff57;color:#080810;border-radiu
 <div style="color:#555;font-size:0.75rem;max-width:300px;">You'll be redirected to TikTok to authorize. This replaces the cookie-based method.</div>
 </body></html>'''
 
-@app.route("/oauth/callback")
+@app.route(”/oauth/callback”)
 def oauth_callback():
-    """Handle TikTok OAuth callback — exchange code for token."""
-    import time
-    code = request.args.get("code")
-    error = request.args.get("error")
+“”“Handle TikTok OAuth callback — exchange code for token.”””
+import time
+code = request.args.get(“code”)
+error = request.args.get(“error”)
 
-    if error:
-        return f"OAuth error: {error}", 400
-    if not code:
-        return "No code received", 400
+```
+if error:
+    return f"OAuth error: {error}", 400
+if not code:
+    return "No code received", 400
 
-    try:
-        token_data = tiktok_exchange_code(code)
-        token_data["expires_at"] = time.time() + token_data.get("expires_in", 86400)
-        Path("/tmp/tiktok_token.json").write_text(json.dumps(token_data))
-        return '''<!DOCTYPE html>
+try:
+    token_data = tiktok_exchange_code(code)
+    token_data["expires_at"] = time.time() + token_data.get("expires_in", 86400)
+    Path("/tmp/tiktok_token.json").write_text(json.dumps(token_data))
+    return '''<!DOCTYPE html>
+```
+
 <html><head><meta name="viewport" content="width=device-width,initial-scale=1">
 <style>body{font-family:monospace;background:#080810;color:#f0f0f8;display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;gap:16px;text-align:center}
 .check{font-size:3rem}.btn{padding:14px 28px;background:#c8ff57;color:#080810;border-radius:10px;font-weight:bold;text-decoration:none;font-size:0.9rem}</style></head>
@@ -983,26 +983,26 @@ def oauth_callback():
     except Exception as e:
         return f"Token exchange failed: {e}", 500
 
-@app.route("/tiktok/status")
+@app.route(”/tiktok/status”)
 def tiktok_status():
-    """Check if TikTok is connected."""
-    token_file = Path("/tmp/tiktok_token.json")
-    import time
-    if not token_file.exists():
-        return jsonify({"connected": False, "message": "Not connected"})
-    data = json.loads(token_file.read_text())
-    expires_at = data.get("expires_at", 0)
-    expires_in = int(expires_at - time.time())
-    return jsonify({
-        "connected": True,
-        "expires_in_hours": round(expires_in / 3600, 1),
-        "needs_refresh": expires_in < 3600,
-    })
+“”“Check if TikTok is connected.”””
+token_file = Path(”/tmp/tiktok_token.json”)
+import time
+if not token_file.exists():
+return jsonify({“connected”: False, “message”: “Not connected”})
+data = json.loads(token_file.read_text())
+expires_at = data.get(“expires_at”, 0)
+expires_in = int(expires_at - time.time())
+return jsonify({
+“connected”: True,
+“expires_in_hours”: round(expires_in / 3600, 1),
+“needs_refresh”: expires_in < 3600,
+})
 
-@app.route("/health")
+@app.route(”/health”)
 def health():
-    return jsonify({"ok": True})
+return jsonify({“ok”: True})
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 3000))
-    app.run(host="0.0.0.0", port=port, debug=False)
+if **name** == “**main**”:
+port = int(os.environ.get(“PORT”, 3000))
+app.run(host=“0.0.0.0”, port=port, debug=False)
