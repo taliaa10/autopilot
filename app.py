@@ -356,20 +356,31 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
                     from tiktok_uploader.upload import TikTokUploader
                 except ImportError:
                     raise RuntimeError("tiktok-uploader not installed.")
-                proxy_parts = PROXY_URL.replace("http://", "").replace("https://", "")
+                # Parse PROXY_URL: http://user:pass@host:port
+                proxy_url = PROXY_URL.strip()
+                proxy_parts = proxy_url.replace("http://", "").replace("https://", "")
                 if "@" in proxy_parts:
                     creds, host_port = proxy_parts.rsplit("@", 1)
                     proxy_user, proxy_pass = creds.split(":", 1)
                     proxy_host, proxy_port = host_port.rsplit(":", 1)
-                    proxy = {"user": proxy_user, "pass": proxy_pass, "host": proxy_host, "port": proxy_port}
                 else:
+                    proxy_user, proxy_pass = None, None
                     proxy_host, proxy_port = proxy_parts.rsplit(":", 1)
-                    proxy = {"host": proxy_host, "port": proxy_port}
-                push_log(job_id, f"Proxy: {proxy.get('host')}:{proxy.get('port')}", "info")
+                # tiktok-uploader proxy dict format
+                proxy = {"host": proxy_host, "port": proxy_port}
+                if proxy_user:
+                    proxy["user"] = proxy_user
+                    proxy["pass"] = proxy_pass
+                push_log(job_id, f"Proxy: {proxy_host}:{proxy_port} (auth={'yes' if proxy_user else 'no'})", "info")
                 cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID, "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
                 hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
                 full_desc = f"{caption} {hashtag_str}".strip()
-                uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy)
+                uploader = TikTokUploader(
+                    cookies_list=cookies_list,
+                    browser="chrome",
+                    headless=True,
+                    proxy=proxy,
+                )
                 video_kwargs = dict(description=full_desc)
                 if product_id:
                     video_kwargs["product_id"] = product_id
@@ -880,20 +891,29 @@ def api_test_tiktok():
                     from tiktok_uploader.upload import TikTokUploader
                 except ImportError:
                     raise RuntimeError("tiktok-uploader not installed.")
-                proxy_parts = PROXY_URL.replace("http://", "").replace("https://", "")
+                proxy_url = PROXY_URL.strip()
+                proxy_parts = proxy_url.replace("http://", "").replace("https://", "")
                 if "@" in proxy_parts:
                     creds, host_port = proxy_parts.rsplit("@", 1)
                     proxy_user, proxy_pass = creds.split(":", 1)
                     proxy_host, proxy_port = host_port.rsplit(":", 1)
-                    proxy = {"user": proxy_user, "pass": proxy_pass, "host": proxy_host, "port": proxy_port}
                 else:
+                    proxy_user, proxy_pass = None, None
                     proxy_host, proxy_port = proxy_parts.rsplit(":", 1)
-                    proxy = {"host": proxy_host, "port": proxy_port}
-                push_log(job_id, f"Proxy: {proxy.get('host')}:{proxy.get('port')}", "info")
+                proxy = {"host": proxy_host, "port": proxy_port}
+                if proxy_user:
+                    proxy["user"] = proxy_user
+                    proxy["pass"] = proxy_pass
+                push_log(job_id, f"Proxy: {proxy_host}:{proxy_port} (auth={'yes' if proxy_user else 'no'})", "info")
                 cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID, "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
                 hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
                 full_desc = f"{caption} {hashtag_str}".strip()
-                uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy)
+                uploader = TikTokUploader(
+                    cookies_list=cookies_list,
+                    browser="chrome",
+                    headless=True,
+                    proxy=proxy,
+                )
                 video_kwargs = dict(description=full_desc)
                 if product_id:
                     video_kwargs["product_id"] = product_id
