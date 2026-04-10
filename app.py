@@ -166,7 +166,8 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
                 filename=str(video_path),
                 description=full_desc,
                 cookies=str(cookies_path),
-                browser="chrome",  # must match what playwright install installs
+                browser="chrome",
+                headless=True,  # required on Railway — no display server available
             )
             if product_id:
                 kwargs["product_id"] = product_id
@@ -356,8 +357,9 @@ select option{background:#16162a}
     <button class="add-preset" onclick="savePreset()">+ Save current as preset</button>
   </div>
 </div>
-<div class="run-bar">
+<div class="run-bar" style="display:flex;flex-direction:column;gap:8px;">
   <button class="run-btn" id="runBtn" onclick="runPipeline()">&#9654; Run Pipeline</button>
+  <button class="run-btn" id="testBtn" onclick="testTikTok()" style="background:var(--s2);color:var(--muted2);border:1px solid var(--border2);font-size:0.75rem;padding:11px;">&#128248; Test TikTok Upload Only</button>
 </div>
 <script>
 let hashtags=[],presets=[],currentJobId=null,isRunning=false,schedulerInterval=null;
@@ -411,6 +413,57 @@ async function runPipeline(){
 }
 function finishRun(success){isRunning=false;const btn=document.getElementById('runBtn');btn.classList.remove('running');btn.disabled=false;if(success){btn.classList.add('success-state');btn.textContent='✓ Done — Run Again';setTimeout(()=>{btn.classList.remove('success-state');btn.textContent='▶ Run Pipeline';setStatus('idle','idle');},5000);}else{btn.textContent='▶ Run Pipeline';}}
 function setupScheduler(){if(!document.getElementById('scheduleOn').checked)return;const timeStr=document.getElementById('scheduleTime').value||'09:00';const[hour,min]=timeStr.split(':').map(Number);if(schedulerInterval)clearInterval(schedulerInterval);schedulerInterval=setInterval(()=>{const now=new Date();if(now.getHours()===hour&&now.getMinutes()===min&&!isRunning){addLog(`Scheduled run triggered at ${timeStr}`,'accent');runPipeline();}},60*1000);toast(`Scheduler set for ${timeStr} daily`);}
+
+async function testTikTok() {
+  if (isRunning) return;
+  const caption = document.getElementById('caption').value.trim() || 'Test post';
+  isRunning = true;
+  clearLog();
+  resetSteps();
+  setStatus('running', 'testing');
+  const btn = document.getElementById('testBtn');
+  btn.textContent = '⏳ Testing...';
+  btn.disabled = true;
+  document.getElementById('runBtn').disabled = true;
+  addLog('TikTok-only test (skipping Sora)...', 'accent');
+  try {
+    const res = await fetch('/api/test-tiktok', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        caption,
+        hashtags: [...hashtags],
+        product_id: document.getElementById('productId').value.trim(),
+      }),
+    });
+    const data = await res.json();
+    if (data.error) { addLog(data.error, 'error'); setStatus('error','error'); finishTest(false); return; }
+    currentJobId = data.job_id;
+    const evtSource = new EventSource(`/api/stream/${currentJobId}`);
+    evtSource.onmessage = (e) => {
+      const entry = JSON.parse(e.data);
+      if (entry.ping) return;
+      if (entry.step !== undefined) { setStep(entry.step); return; }
+      if (entry.done) {
+        evtSource.close();
+        if (entry.error) { setStatus('error','error'); finishTest(false); }
+        else { allDone(); setStatus('done','done ✓'); finishTest(true); }
+        return;
+      }
+      if (entry.msg) addLog(entry.msg, entry.level || 'info');
+    };
+    evtSource.onerror = () => { evtSource.close(); addLog('Connection lost','error'); setStatus('error','error'); finishTest(false); };
+  } catch(err) { addLog(`Error: ${err.message}`,'error'); setStatus('error','error'); finishTest(false); }
+}
+
+function finishTest(success) {
+  isRunning = false;
+  const btn = document.getElementById('testBtn');
+  btn.disabled = false;
+  btn.textContent = success ? '✓ TikTok Test Passed!' : '📷 Test TikTok Upload Only';
+  document.getElementById('runBtn').disabled = false;
+  if (success) setTimeout(() => { btn.textContent = '📷 Test TikTok Upload Only'; setStatus('idle','idle'); }, 5000);
+}
 function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.remove());const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),2500);}
 </script>
 </body>
@@ -488,6 +541,82 @@ def delete_preset(idx):
     if 0 <= idx < len(presets): presets.pop(idx)
     f.write_text(json.dumps(presets))
     return jsonify({"ok": True})
+
+
+@app.route("/api/test-tiktok", methods=["POST"])
+def api_test_tiktok():
+    """Test TikTok upload only — skips Sora, uses a tiny dummy video."""
+    body = request.get_json() or {}
+    caption    = body.get("caption", "Test post").strip()
+    hashtags   = body.get("hashtags", [])
+    product_id = body.get("product_id", "").strip() or None
+
+    job_id = new_job_id()
+    jobs[job_id] = {"status": "starting", "logs": [], "step": 0, "video_path": None, "error": None}
+    job_queues[job_id] = queue.Queue()
+
+    def run_tiktok_test():
+        try:
+            jobs[job_id]["status"] = "running"
+            push_step(job_id, 3)
+            push_log(job_id, "TikTok test — creating dummy video...", "step")
+
+            # Create a tiny valid MP4 using ffmpeg (available on Railway)
+            import subprocess
+            dummy_path = OUTPUT_DIR / f"dummy_{job_id}.mp4"
+            result = subprocess.run([
+                "ffmpeg", "-y",
+                "-f", "lavfi", "-i", "color=c=black:s=720x1280:d=4",
+                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
+                "-c:v", "libx264", "-c:a", "aac", "-shortest",
+                str(dummy_path)
+            ], capture_output=True, text=True, timeout=30)
+
+            if result.returncode != 0:
+                raise RuntimeError(f"ffmpeg failed: {result.stderr[:200]}")
+
+            push_log(job_id, f"Dummy video created → {dummy_path.name}", "info")
+            jobs[job_id]["video_path"] = str(dummy_path)
+
+            push_log(job_id, "Starting TikTok upload...", "step")
+            try:
+                from tiktok_uploader.upload import upload_video
+            except ImportError:
+                raise RuntimeError("tiktok-uploader not installed.")
+
+            cookies_path = OUTPUT_DIR / "cookies.txt"
+            cookies_path.write_text(
+                f"# Netscape HTTP Cookie File\n.tiktok.com\tTRUE\t/\tTRUE\t0\tsessionid\t{TIKTOK_SESSION_ID}\n"
+            )
+            hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+            full_desc = f"{caption} {hashtag_str}".strip()
+
+            kwargs = dict(
+                filename=str(dummy_path),
+                description=full_desc,
+                cookies=str(cookies_path),
+                browser="chrome",
+                headless=True,
+            )
+            if product_id:
+                kwargs["product_id"] = product_id
+
+            upload_video(**kwargs)
+            push_step(job_id, 4)
+            push_log(job_id, "Posted to TikTok ✓", "success")
+            jobs[job_id]["status"] = "done"
+            push_log(job_id, "── TikTok test complete ──", "done")
+            if job_id in job_queues:
+                job_queues[job_id].put({"done": True})
+        except Exception as e:
+            jobs[job_id]["status"] = "error"
+            jobs[job_id]["error"] = str(e)
+            push_log(job_id, f"Error: {e}", "error")
+            if job_id in job_queues:
+                job_queues[job_id].put({"done": True, "error": str(e)})
+
+    threading.Thread(target=run_tiktok_test, daemon=True).start()
+    return jsonify({"job_id": job_id})
 
 @app.route("/health")
 def health():
