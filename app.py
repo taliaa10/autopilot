@@ -46,6 +46,45 @@ def push_step(job_id, step):
     if job_id in job_queues:
         job_queues[job_id].put(entry)
 
+
+def _make_dummy_mp4() -> bytes:
+    """Generate a minimal valid MP4 byte string — no external tools needed."""
+    # Smallest possible ftyp + mdat + moov that most uploaders accept
+    import struct
+
+    def box(name: str, *children) -> bytes:
+        data = b"".join(children)
+        return struct.pack(">I", len(data) + 8) + name.encode() + data
+
+    def full_box(name: str, version: int, flags: int, *children) -> bytes:
+        data = b"".join(children)
+        return struct.pack(">I", len(data) + 12) + name.encode() + struct.pack(">B", version) + struct.pack(">I", flags)[1:] + data
+
+    ftyp = box("ftyp", b"mp42", b"\x00\x00\x00\x00", b"mp42", b"isom")
+
+    # Minimal mdat (1 byte of video data placeholder)
+    mdat = box("mdat", b"\x00")
+
+    # Minimal moov with mvhd + trak
+    mvhd = full_box("mvhd", 0, 0,
+        struct.pack(">IIIIHHIIIIIII",
+            0, 0,       # creation, modification time
+            1000,       # timescale
+            4000,       # duration (4 sec)
+            0x00010000, # rate 1.0
+            0x0100,     # volume 1.0
+            0, 0,       # reserved
+            0x00010000, 0, 0,  # matrix row 1
+            0, 0x00010000, 0,  # matrix row 2
+            0, 0, 0x40000000,  # matrix row 3
+            0, 0, 0, 0, 0, 0,  # pre-defined
+            2,          # next track id
+        )
+    )
+    moov = box("moov", mvhd)
+    return ftyp + mdat + moov
+
+
 def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, duration):
     try:
         jobs[job_id]["status"] = "running"
@@ -308,6 +347,10 @@ select option{background:#16162a}
       <div class="step-label" id="sl3">Upload</div>
       <div class="step-label" id="sl4">Post</div>
     </div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <span style="font-size:0.6rem;letter-spacing:0.12em;text-transform:uppercase;color:var(--muted);">Log output</span>
+      <button onclick="copyLog()" style="background:var(--s2);border:1px solid var(--border2);border-radius:6px;color:var(--muted2);font-family:'JetBrains Mono',monospace;font-size:0.6rem;padding:3px 8px;cursor:pointer;letter-spacing:0.06em;" id="copyLogBtn">copy</button>
+    </div>
     <div class="log" id="log"><span class="log-line info">// waiting for run...</span></div>
   </div>
   <div class="card">
@@ -349,6 +392,13 @@ select option{background:#16162a}
     <div class="field" id="scheduleField" style="display:none;">
       <label>Post time (24hr)</label>
       <input type="text" id="scheduleTime" placeholder="09:00" maxlength="5">
+    </div>
+    <div style="margin-top:4px;">
+      <div class="card-tag" style="margin-bottom:10px;">TikTok test video <span style="color:var(--muted);font-size:0.6rem;text-transform:none">(optional — uses dummy if empty)</span></div>
+      <label for="testVideoFile" style="display:block;width:100%;padding:12px;background:var(--s2);border:1px dashed var(--border2);border-radius:10px;text-align:center;cursor:pointer;font-size:0.75rem;color:var(--muted2);transition:border-color 0.2s;" id="testVideoLabel">
+        &#128247; Tap to choose a video file
+      </label>
+      <input type="file" id="testVideoFile" accept="video/*" style="display:none" onchange="handleVideoFile(this)">
     </div>
   </div>
   <div class="card">
@@ -434,6 +484,7 @@ async function testTikTok() {
         caption,
         hashtags: [...hashtags],
         product_id: document.getElementById('productId').value.trim(),
+        custom_video_path: window._uploadedTestVideoPath || '',
       }),
     });
     const data = await res.json();
@@ -543,6 +594,19 @@ def delete_preset(idx):
     return jsonify({"ok": True})
 
 
+
+@app.route("/api/upload-test-video", methods=["POST"])
+def upload_test_video():
+    """Accept a user-uploaded video file for TikTok testing."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+    save_path = OUTPUT_DIR / f"uploaded_test_{f.filename}"
+    f.save(str(save_path))
+    return jsonify({"ok": True, "path": str(save_path), "filename": f.filename})
+
 @app.route("/api/test-tiktok", methods=["POST"])
 def api_test_tiktok():
     """Test TikTok upload only — skips Sora, uses a tiny dummy video."""
@@ -555,28 +619,24 @@ def api_test_tiktok():
     jobs[job_id] = {"status": "starting", "logs": [], "step": 0, "video_path": None, "error": None}
     job_queues[job_id] = queue.Queue()
 
+    custom_video = body.get("custom_video_path", "").strip() or None
+
     def run_tiktok_test():
         try:
             jobs[job_id]["status"] = "running"
             push_step(job_id, 3)
-            push_log(job_id, "TikTok test — creating dummy video...", "step")
 
-            # Create a tiny valid MP4 using ffmpeg (available on Railway)
-            import subprocess
-            dummy_path = OUTPUT_DIR / f"dummy_{job_id}.mp4"
-            result = subprocess.run([
-                "ffmpeg", "-y",
-                "-f", "lavfi", "-i", "color=c=black:s=720x1280:d=4",
-                "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
-                "-c:v", "libx264", "-c:a", "aac", "-shortest",
-                str(dummy_path)
-            ], capture_output=True, text=True, timeout=30)
+            if custom_video and Path(custom_video).exists():
+                video_path_to_use = Path(custom_video)
+                push_log(job_id, f"Using uploaded video: {video_path_to_use.name}", "step")
+            else:
+                push_log(job_id, "TikTok test — creating dummy video...", "step")
+                dummy_path = OUTPUT_DIR / f"dummy_{job_id}.mp4"
+                dummy_path.write_bytes(_make_dummy_mp4())
+                push_log(job_id, f"Dummy video created → {dummy_path.name}", "info")
+                video_path_to_use = dummy_path
 
-            if result.returncode != 0:
-                raise RuntimeError(f"ffmpeg failed: {result.stderr[:200]}")
-
-            push_log(job_id, f"Dummy video created → {dummy_path.name}", "info")
-            jobs[job_id]["video_path"] = str(dummy_path)
+            jobs[job_id]["video_path"] = str(video_path_to_use)
 
             push_log(job_id, "Starting TikTok upload...", "step")
             try:
@@ -592,7 +652,7 @@ def api_test_tiktok():
             full_desc = f"{caption} {hashtag_str}".strip()
 
             kwargs = dict(
-                filename=str(dummy_path),
+                filename=str(video_path_to_use),
                 description=full_desc,
                 cookies=str(cookies_path),
                 browser="chrome",
