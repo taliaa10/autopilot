@@ -1,7 +1,7 @@
-“””
+"""
 app.py — AUTOPILOT (single-file version for Railway)
 HTML is embedded directly — no templates/ folder needed.
-“””
+"""
 
 import os
 import time
@@ -14,208 +14,207 @@ from pathlib import Path
 from datetime import datetime
 from flask import Flask, request, jsonify, Response
 
-logging.basicConfig(level=logging.INFO, format=”%(asctime)s [%(levelname)s] %(message)s”)
-log = logging.getLogger(**name**)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+log = logging.getLogger(__name__)
 
-app = Flask(**name**)
+app = Flask(__name__)
 
-OPENAI_API_KEY    = os.environ.get(“OPENAI_API_KEY”, “”)
-TIKTOK_SESSION_ID = os.environ.get(“TIKTOK_SESSION_ID”, “”)
-APP_SECRET        = os.environ.get(“APP_SECRET”, “”)
+OPENAI_API_KEY    = os.environ.get("OPENAI_API_KEY", "")
+TIKTOK_SESSION_ID = os.environ.get("TIKTOK_SESSION_ID", "")
+APP_SECRET        = os.environ.get("APP_SECRET", "")
 
-OUTPUT_DIR = Path(”/tmp/videos”)
+OUTPUT_DIR = Path("/tmp/videos")
 OUTPUT_DIR.mkdir(exist_ok=True)
 
 jobs = {}
 job_queues = {}
 
 def new_job_id():
-return datetime.now().strftime(”%Y%m%d_%H%M%S_%f”)
+    return datetime.now().strftime("%Y%m%d_%H%M%S_%f")
 
-def push_log(job_id, msg, level=“info”):
-entry = {“msg”: msg, “level”: level, “t”: datetime.now().strftime(”%H:%M:%S”)}
-if job_id in jobs:
-jobs[job_id][“logs”].append(entry)
-if job_id in job_queues:
-job_queues[job_id].put(entry)
+def push_log(job_id, msg, level="info"):
+    entry = {"msg": msg, "level": level, "t": datetime.now().strftime("%H:%M:%S")}
+    if job_id in jobs:
+        jobs[job_id]["logs"].append(entry)
+    if job_id in job_queues:
+        job_queues[job_id].put(entry)
 
 def push_step(job_id, step):
-entry = {“step”: step, “t”: datetime.now().strftime(”%H:%M:%S”)}
-if job_id in jobs:
-jobs[job_id][“step”] = step
-if job_id in job_queues:
-job_queues[job_id].put(entry)
+    entry = {"step": step, "t": datetime.now().strftime("%H:%M:%S")}
+    if job_id in jobs:
+        jobs[job_id]["step"] = step
+    if job_id in job_queues:
+        job_queues[job_id].put(entry)
+
 
 def _make_dummy_mp4() -> bytes:
-“”“Minimal valid MP4 - pure Python, no dependencies.”””
-import struct
-def box(name, data=b””):
-return struct.pack(”>I”, len(data) + 8) + name.encode() + data
-def u32(n): return struct.pack(”>I”, n)
-def u16(n): return struct.pack(”>H”, n)
-ftyp = box(“ftyp”, b”isom” + u32(0x200) + b”isom” + b”iso2” + b”mp41”)
-mvhd_data = (
-u32(0) + u32(0) + u32(0) +
-u32(1000) + u32(4000) +
-u32(0x00010000) + u16(0x0100) +
-b”\x00” * 10 +
-u32(0x00010000) + u32(0) + u32(0) +
-u32(0) + u32(0x00010000) + u32(0) +
-u32(0) + u32(0) + u32(0x40000000) +
-b”\x00” * 24 + u32(2)
-)
-moov = box(“moov”, box(“mvhd”, mvhd_data))
-return ftyp + box(“mdat”, b”\x00” * 4) + moov
+    """Minimal valid MP4 - pure Python, no dependencies."""
+    import struct
+    def box(name, data=b""):
+        return struct.pack(">I", len(data) + 8) + name.encode() + data
+    def u32(n): return struct.pack(">I", n)
+    def u16(n): return struct.pack(">H", n)
+    ftyp = box("ftyp", b"isom" + u32(0x200) + b"isom" + b"iso2" + b"mp41")
+    mvhd_data = (
+        u32(0) + u32(0) + u32(0) +
+        u32(1000) + u32(4000) +
+        u32(0x00010000) + u16(0x0100) +
+        b"\x00" * 10 +
+        u32(0x00010000) + u32(0) + u32(0) +
+        u32(0) + u32(0x00010000) + u32(0) +
+        u32(0) + u32(0) + u32(0x40000000) +
+        b"\x00" * 24 + u32(2)
+    )
+    moov = box("moov", box("mvhd", mvhd_data))
+    return ftyp + box("mdat", b"\x00" * 4) + moov
+
 
 def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, duration):
-try:
-jobs[job_id][“status”] = “running”
+    try:
+        jobs[job_id]["status"] = "running"
 
-```
-    push_step(job_id, 1)
-    push_log(job_id, f"Submitting to Sora API ({model}, {duration}s)...", "step")
+        push_step(job_id, 1)
+        push_log(job_id, f"Submitting to Sora API ({model}, {duration}s)...", "step")
 
-    headers = {
-        "Authorization": f"Bearer {OPENAI_API_KEY}",
-        "Content-Type": "application/json",
-    }
+        headers = {
+            "Authorization": f"Bearer {OPENAI_API_KEY}",
+            "Content-Type": "application/json",
+        }
 
-    # Correct endpoint: POST /v1/videos  (not /v1/videos/generations)
-    payload = {
-        "model": model,
-        "prompt": prompt,
-        "size": "720x1280",  # valid portrait sizes: 720x1280 or 1024x1792
-        "seconds": str(duration),  # must be string: "4", "8", or "12"
-    }
-    push_log(job_id, "POST /v1/videos ...", "info")
-    resp = requests.post(
-        "https://api.openai.com/v1/videos",
-        headers=headers,
-        json=payload,
-        timeout=60,
-    )
-
-    if not resp.ok:
-        push_log(job_id, f"Sora API error {resp.status_code}: {resp.text[:300]}", "error")
-        raise RuntimeError(f"Sora API returned {resp.status_code}: {resp.text[:200]}")
-
-    data = resp.json()
-    push_log(job_id, f"Response keys: {list(data.keys())}", "info")
-
-    job_sora_id = (
-        data.get("id")
-        or data.get("generation_id")
-        or (data.get("data") or [{}])[0].get("id")
-    )
-    if not job_sora_id:
-        raise RuntimeError(f"No job ID in response: {str(data)[:200]}")
-
-    push_log(job_id, f"Job queued → id={job_sora_id}", "info")
-
-    video_url = None
-    for attempt in range(180):
-        time.sleep(5)
-        # Correct poll endpoint: GET /v1/videos/{id}
-        poll = requests.get(
-            f"https://api.openai.com/v1/videos/{job_sora_id}",
+        # Correct endpoint: POST /v1/videos  (not /v1/videos/generations)
+        payload = {
+            "model": model,
+            "prompt": prompt,
+            "size": "720x1280",  # valid portrait sizes: 720x1280 or 1024x1792
+            "seconds": str(duration),  # must be string: "4", "8", or "12"
+        }
+        push_log(job_id, "POST /v1/videos ...", "info")
+        resp = requests.post(
+            "https://api.openai.com/v1/videos",
             headers=headers,
-            timeout=30,
+            json=payload,
+            timeout=60,
         )
-        if not poll.ok:
-            push_log(job_id, f"Poll error {poll.status_code}: {poll.text[:200]}", "error")
-            raise RuntimeError(f"Poll failed: {poll.status_code}")
 
-        sd = poll.json()
-        status = sd.get("status", "unknown")
-        if attempt % 6 == 0:
-            push_log(job_id, f"Status: {status} ({attempt*5}s elapsed)", "info")
+        if not resp.ok:
+            push_log(job_id, f"Sora API error {resp.status_code}: {resp.text[:300]}", "error")
+            raise RuntimeError(f"Sora API returned {resp.status_code}: {resp.text[:200]}")
 
-        if status in ("completed", "succeeded"):
-            video_url = (
-                sd.get("url")
-                or sd.get("video_url")
-                or (sd.get("data") or [{}])[0].get("url")
-                or (sd.get("generations") or [{}])[0].get("url")
+        data = resp.json()
+        push_log(job_id, f"Response keys: {list(data.keys())}", "info")
+
+        job_sora_id = (
+            data.get("id")
+            or data.get("generation_id")
+            or (data.get("data") or [{}])[0].get("id")
+        )
+        if not job_sora_id:
+            raise RuntimeError(f"No job ID in response: {str(data)[:200]}")
+
+        push_log(job_id, f"Job queued → id={job_sora_id}", "info")
+
+        video_url = None
+        for attempt in range(180):
+            time.sleep(5)
+            # Correct poll endpoint: GET /v1/videos/{id}
+            poll = requests.get(
+                f"https://api.openai.com/v1/videos/{job_sora_id}",
+                headers=headers,
+                timeout=30,
             )
-            push_log(job_id, f"Completed! url={bool(video_url)}", "success")
-            break
-        elif status in ("failed", "cancelled", "error"):
-            err_detail = sd.get("error") or sd.get("message") or str(sd)[:200]
-            raise RuntimeError(f"Sora job {status}: {err_detail}")
+            if not poll.ok:
+                push_log(job_id, f"Poll error {poll.status_code}: {poll.text[:200]}", "error")
+                raise RuntimeError(f"Poll failed: {poll.status_code}")
 
-    push_log(job_id, "Video generated ✓", "success")
+            sd = poll.json()
+            status = sd.get("status", "unknown")
+            if attempt % 6 == 0:
+                push_log(job_id, f"Status: {status} ({attempt*5}s elapsed)", "info")
 
-    push_step(job_id, 2)
-    push_log(job_id, "Downloading video...", "step")
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    video_path = OUTPUT_DIR / f"sora_{timestamp}.mp4"
+            if status in ("completed", "succeeded"):
+                video_url = (
+                    sd.get("url")
+                    or sd.get("video_url")
+                    or (sd.get("data") or [{}])[0].get("url")
+                    or (sd.get("generations") or [{}])[0].get("url")
+                )
+                push_log(job_id, f"Completed! url={bool(video_url)}", "success")
+                break
+            elif status in ("failed", "cancelled", "error"):
+                err_detail = sd.get("error") or sd.get("message") or str(sd)[:200]
+                raise RuntimeError(f"Sora job {status}: {err_detail}")
 
-    if video_url:
-        r = requests.get(video_url, stream=True, timeout=120)
-        r.raise_for_status()
-        with open(video_path, "wb") as f:
-            for chunk in r.iter_content(8192): f.write(chunk)
-    else:
-        # Fallback: fetch content directly
-        cr = requests.get(f"https://api.openai.com/v1/videos/{job_sora_id}/content", headers=headers, stream=True, timeout=120)
-        cr.raise_for_status()
-        with open(video_path, "wb") as f:
-            for chunk in cr.iter_content(8192): f.write(chunk)
+        push_log(job_id, "Video generated ✓", "success")
 
-    jobs[job_id]["video_path"] = str(video_path)
-    push_log(job_id, f"Saved → {video_path.name}", "success")
+        push_step(job_id, 2)
+        push_log(job_id, "Downloading video...", "step")
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        video_path = OUTPUT_DIR / f"sora_{timestamp}.mp4"
 
-    if dry_run:
-        push_step(job_id, 3)
-        push_log(job_id, "Dry run — skipping upload", "accent")
-        push_step(job_id, 4)
-        push_log(job_id, "Done (dry run) ✓", "success")
-    else:
-        push_step(job_id, 3)
-        push_log(job_id, "Starting TikTok upload...", "step")
-        try:
-            from tiktok_uploader.upload import TikTokUploader
-        except ImportError:
-            raise RuntimeError("tiktok-uploader not installed.")
+        if video_url:
+            r = requests.get(video_url, stream=True, timeout=120)
+            r.raise_for_status()
+            with open(video_path, "wb") as f:
+                for chunk in r.iter_content(8192): f.write(chunk)
+        else:
+            # Fallback: fetch content directly
+            cr = requests.get(f"https://api.openai.com/v1/videos/{job_sora_id}/content", headers=headers, stream=True, timeout=120)
+            cr.raise_for_status()
+            with open(video_path, "wb") as f:
+                for chunk in cr.iter_content(8192): f.write(chunk)
 
-        cookies_list = [{
-            'name': 'sessionid',
-            'value': TIKTOK_SESSION_ID,
-            'domain': '.tiktok.com',
-            'path': '/',
-            'expiry': 2147483647,
-        }]
-        hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
-        full_desc = f"{caption} {hashtag_str}".strip()
-        uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True)
-        video_kwargs = dict(description=full_desc)
-        if product_id:
-            video_kwargs["product_id"] = product_id
-            push_log(job_id, f"Attaching product ID: {product_id}", "info")
-        push_log(job_id, "Uploading via Playwright...", "info")
-        push_log(job_id, "Note: check TikTok drafts if not visible publicly", "info")
-        uploader.upload_video(str(video_path), **video_kwargs)
-        push_step(job_id, 4)
-        push_log(job_id, "Posted to TikTok ✓ — check your profile AND drafts", "success")
+        jobs[job_id]["video_path"] = str(video_path)
+        push_log(job_id, f"Saved → {video_path.name}", "success")
 
-    jobs[job_id]["status"] = "done"
-    push_log(job_id, "── Pipeline complete ──", "done")
-    if job_id in job_queues:
-        job_queues[job_id].put({"done": True})
+        if dry_run:
+            push_step(job_id, 3)
+            push_log(job_id, "Dry run — skipping upload", "accent")
+            push_step(job_id, 4)
+            push_log(job_id, "Done (dry run) ✓", "success")
+        else:
+            push_step(job_id, 3)
+            push_log(job_id, "Starting TikTok upload...", "step")
+            try:
+                from tiktok_uploader.upload import TikTokUploader
+            except ImportError:
+                raise RuntimeError("tiktok-uploader not installed.")
 
-except Exception as e:
-    jobs[job_id]["status"] = "error"
-    jobs[job_id]["error"] = str(e)
-    push_log(job_id, f"Error: {e}", "error")
-    log.exception(f"Pipeline error for job {job_id}")
-    if job_id in job_queues:
-        job_queues[job_id].put({"done": True, "error": str(e)})
-```
+            cookies_list = [{
+                'name': 'sessionid',
+                'value': TIKTOK_SESSION_ID,
+                'domain': '.tiktok.com',
+                'path': '/',
+                'expiry': 2147483647,
+            }]
+            hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+            full_desc = f"{caption} {hashtag_str}".strip()
+            uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True)
+            video_kwargs = dict(description=full_desc)
+            if product_id:
+                video_kwargs["product_id"] = product_id
+                push_log(job_id, f"Attaching product ID: {product_id}", "info")
+            push_log(job_id, "Uploading via Playwright...", "info")
+            push_log(job_id, "Note: check TikTok drafts if not visible publicly", "info")
+            uploader.upload_video(str(video_path), **video_kwargs)
+            push_step(job_id, 4)
+            push_log(job_id, "Posted to TikTok ✓ — check your profile AND drafts", "success")
+
+        jobs[job_id]["status"] = "done"
+        push_log(job_id, "── Pipeline complete ──", "done")
+        if job_id in job_queues:
+            job_queues[job_id].put({"done": True})
+
+    except Exception as e:
+        jobs[job_id]["status"] = "error"
+        jobs[job_id]["error"] = str(e)
+        push_log(job_id, f"Error: {e}", "error")
+        log.exception(f"Pipeline error for job {job_id}")
+        if job_id in job_queues:
+            job_queues[job_id].put({"done": True, "error": str(e)})
+
 
 # ── HTML (embedded) ────────────────────────────────────────────────────────
-
-HTML = r”””<!DOCTYPE html>
-
+HTML = r"""<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -454,275 +453,277 @@ function finishRun(success){isRunning=false;const btn=document.getElementById('r
 function setupScheduler(){if(!document.getElementById('scheduleOn').checked)return;const timeStr=document.getElementById('scheduleTime').value||'09:00';const[hour,min]=timeStr.split(':').map(Number);if(schedulerInterval)clearInterval(schedulerInterval);schedulerInterval=setInterval(()=>{const now=new Date();if(now.getHours()===hour&&now.getMinutes()===min&&!isRunning){addLog(`Scheduled run triggered at ${timeStr}`,'accent');runPipeline();}},60*1000);toast(`Scheduler set for ${timeStr} daily`);}
 
 async function testTikTok() {
-if (isRunning) return;
-const caption = document.getElementById(‘caption’).value.trim() || ‘Test post’;
-isRunning = true;
-clearLog();
-resetSteps();
-setStatus(‘running’, ‘testing’);
-const btn = document.getElementById(‘testBtn’);
-btn.textContent = ‘⏳ Testing…’;
-btn.disabled = true;
-document.getElementById(‘runBtn’).disabled = true;
-addLog(‘TikTok-only test (skipping Sora)…’, ‘accent’);
-try {
-const res = await fetch(’/api/test-tiktok’, {
-method: ‘POST’,
-headers: {‘Content-Type’: ‘application/json’},
-body: JSON.stringify({
-caption,
-hashtags: […hashtags],
-product_id: document.getElementById(‘productId’).value.trim(),
-custom_video_path: window._uploadedTestVideoPath || ‘’,
-}),
-});
-const data = await res.json();
-if (data.error) { addLog(data.error, ‘error’); setStatus(‘error’,‘error’); finishTest(false); return; }
-currentJobId = data.job_id;
-const evtSource = new EventSource(`/api/stream/${currentJobId}`);
-evtSource.onmessage = (e) => {
-const entry = JSON.parse(e.data);
-if (entry.ping) return;
-if (entry.step !== undefined) { setStep(entry.step); return; }
-if (entry.done) {
-evtSource.close();
-if (entry.error) { setStatus(‘error’,‘error’); finishTest(false); }
-else { allDone(); setStatus(‘done’,‘done ✓’); finishTest(true); }
-return;
-}
-if (entry.msg) addLog(entry.msg, entry.level || ‘info’);
-};
-evtSource.onerror = () => { evtSource.close(); addLog(‘Connection lost’,‘error’); setStatus(‘error’,‘error’); finishTest(false); };
-} catch(err) { addLog(`Error: ${err.message}`,‘error’); setStatus(‘error’,‘error’); finishTest(false); }
+  if (isRunning) return;
+  const caption = document.getElementById('caption').value.trim() || 'Test post';
+  isRunning = true;
+  clearLog();
+  resetSteps();
+  setStatus('running', 'testing');
+  const btn = document.getElementById('testBtn');
+  btn.textContent = '⏳ Testing...';
+  btn.disabled = true;
+  document.getElementById('runBtn').disabled = true;
+  addLog('TikTok-only test (skipping Sora)...', 'accent');
+  try {
+    const res = await fetch('/api/test-tiktok', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        caption,
+        hashtags: [...hashtags],
+        product_id: document.getElementById('productId').value.trim(),
+        custom_video_path: window._uploadedTestVideoPath || '',
+      }),
+    });
+    const data = await res.json();
+    if (data.error) { addLog(data.error, 'error'); setStatus('error','error'); finishTest(false); return; }
+    currentJobId = data.job_id;
+    const evtSource = new EventSource(`/api/stream/${currentJobId}`);
+    evtSource.onmessage = (e) => {
+      const entry = JSON.parse(e.data);
+      if (entry.ping) return;
+      if (entry.step !== undefined) { setStep(entry.step); return; }
+      if (entry.done) {
+        evtSource.close();
+        if (entry.error) { setStatus('error','error'); finishTest(false); }
+        else { allDone(); setStatus('done','done ✓'); finishTest(true); }
+        return;
+      }
+      if (entry.msg) addLog(entry.msg, entry.level || 'info');
+    };
+    evtSource.onerror = () => { evtSource.close(); addLog('Connection lost','error'); setStatus('error','error'); finishTest(false); };
+  } catch(err) { addLog(`Error: ${err.message}`,'error'); setStatus('error','error'); finishTest(false); }
 }
 
 function finishTest(success) {
-isRunning = false;
-const btn = document.getElementById(‘testBtn’);
-btn.disabled = false;
-btn.textContent = success ? ‘✓ TikTok Test Passed!’ : ‘📷 Test TikTok Upload Only’;
-document.getElementById(‘runBtn’).disabled = false;
-if (success) setTimeout(() => { btn.textContent = ‘📷 Test TikTok Upload Only’; setStatus(‘idle’,‘idle’); }, 5000);
+  isRunning = false;
+  const btn = document.getElementById('testBtn');
+  btn.disabled = false;
+  btn.textContent = success ? '✓ TikTok Test Passed!' : '📷 Test TikTok Upload Only';
+  document.getElementById('runBtn').disabled = false;
+  if (success) setTimeout(() => { btn.textContent = '📷 Test TikTok Upload Only'; setStatus('idle','idle'); }, 5000);
 }
+
 
 async function handleVideoFile(input) {
-const file = input.files[0];
-if (!file) return;
-const label = document.getElementById(‘testVideoLabel’);
-label.textContent = ‘⏳ Uploading ’ + file.name + ‘…’;
-label.style.color = ‘var(–muted2)’;
-const fd = new FormData();
-fd.append(‘file’, file);
-try {
-const res = await fetch(’/api/upload-test-video’, { method: ‘POST’, body: fd });
-const data = await res.json();
-if (data.ok) {
-window._uploadedTestVideoPath = data.path;
-label.textContent = ‘✓ ’ + data.filename + ’ ready to use’;
-label.style.color = ‘var(–cyan)’;
-label.style.borderColor = ‘rgba(87,255,196,0.4)’;
-} else {
-label.textContent = ‘✗ ’ + (data.error || ‘Upload failed’);
-label.style.color = ‘var(–red)’;
-}
-} catch(e) {
-label.textContent = ‘✗ ’ + e.message;
-label.style.color = ‘var(–red)’;
-}
+  const file = input.files[0];
+  if (!file) return;
+  const label = document.getElementById('testVideoLabel');
+  label.textContent = '⏳ Uploading ' + file.name + '...';
+  label.style.color = 'var(--muted2)';
+  const fd = new FormData();
+  fd.append('file', file);
+  try {
+    const res = await fetch('/api/upload-test-video', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (data.ok) {
+      window._uploadedTestVideoPath = data.path;
+      label.textContent = '✓ ' + data.filename + ' ready to use';
+      label.style.color = 'var(--cyan)';
+      label.style.borderColor = 'rgba(87,255,196,0.4)';
+    } else {
+      label.textContent = '✗ ' + (data.error || 'Upload failed');
+      label.style.color = 'var(--red)';
+    }
+  } catch(e) {
+    label.textContent = '✗ ' + e.message;
+    label.style.color = 'var(--red)';
+  }
 }
 function copyLog() {
-const lines = […document.getElementById(‘log’).querySelectorAll(’.log-line’)]
-.map(el => el.textContent).join(’\n’);
-const btn = document.getElementById(‘copyLogBtn’);
-function flash() {
-btn.textContent = ‘copied!’;
-btn.style.color = ‘var(–cyan)’;
-setTimeout(() => { btn.textContent = ‘copy’; btn.style.color = ‘’; }, 2000);
-}
-if (navigator.clipboard && navigator.clipboard.writeText) {
-navigator.clipboard.writeText(lines).then(flash).catch(() => fallbackCopy(lines, flash));
-} else { fallbackCopy(lines, flash); }
+  const lines = [...document.getElementById('log').querySelectorAll('.log-line')]
+    .map(el => el.textContent).join('\n');
+  const btn = document.getElementById('copyLogBtn');
+  function flash() {
+    btn.textContent = 'copied!';
+    btn.style.color = 'var(--cyan)';
+    setTimeout(() => { btn.textContent = 'copy'; btn.style.color = ''; }, 2000);
+  }
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(lines).then(flash).catch(() => fallbackCopy(lines, flash));
+  } else { fallbackCopy(lines, flash); }
 }
 function fallbackCopy(text, cb) {
-const ta = document.createElement(‘textarea’);
-ta.value = text;
-ta.style.cssText = ‘position:fixed;top:-9999px;left:-9999px;’;
-document.body.appendChild(ta);
-ta.focus(); ta.select();
-try { document.execCommand(‘copy’); cb(); } catch(e) { alert(‘Copy failed — long press the log to copy manually’); }
-document.body.removeChild(ta);
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.cssText = 'position:fixed;top:-9999px;left:-9999px;';
+  document.body.appendChild(ta);
+  ta.focus(); ta.select();
+  try { document.execCommand('copy'); cb(); } catch(e) { alert('Copy failed — long press the log to copy manually'); }
+  document.body.removeChild(ta);
 }
-function toast(msg){document.querySelectorAll(’.toast’).forEach(t=>t.remove());const el=document.createElement(‘div’);el.className=‘toast’;el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),2500);}
+function toast(msg){document.querySelectorAll('.toast').forEach(t=>t.remove());const el=document.createElement('div');el.className='toast';el.textContent=msg;document.body.appendChild(el);setTimeout(()=>el.remove(),2500);}
 </script>
-
 </body>
 </html>"""
 
+
 # ── Routes ─────────────────────────────────────────────────────────────────
 
-@app.route(”/”)
+@app.route("/")
 def index():
-return HTML
+    return HTML
 
-@app.route(”/api/run”, methods=[“POST”])
+@app.route("/api/run", methods=["POST"])
 def api_run():
-if APP_SECRET and request.headers.get(“X-App-Secret”) != APP_SECRET:
-return jsonify({“error”: “Unauthorized”}), 401
-body = request.get_json() or {}
-prompt     = body.get(“prompt”, “”).strip()
-caption    = body.get(“caption”, “”).strip()
-hashtags   = body.get(“hashtags”, [])
-product_id = body.get(“product_id”, “”).strip() or None
-dry_run    = body.get(“dry_run”, False)
-model      = body.get(“model”, “sora-2”)
-duration   = body.get(“duration”, 10)
-if not prompt:   return jsonify({“error”: “prompt is required”}), 400
-if not caption:  return jsonify({“error”: “caption is required”}), 400
-if not OPENAI_API_KEY: return jsonify({“error”: “OPENAI_API_KEY not set on server”}), 500
-job_id = new_job_id()
-jobs[job_id] = {“status”: “starting”, “logs”: [], “step”: 0, “video_path”: None, “error”: None}
-job_queues[job_id] = queue.Queue()
-threading.Thread(target=run_pipeline, args=(job_id, prompt, caption, hashtags, product_id, dry_run, model, duration), daemon=True).start()
-return jsonify({“job_id”: job_id})
+    if APP_SECRET and request.headers.get("X-App-Secret") != APP_SECRET:
+        return jsonify({"error": "Unauthorized"}), 401
+    body = request.get_json() or {}
+    prompt     = body.get("prompt", "").strip()
+    caption    = body.get("caption", "").strip()
+    hashtags   = body.get("hashtags", [])
+    product_id = body.get("product_id", "").strip() or None
+    dry_run    = body.get("dry_run", False)
+    model      = body.get("model", "sora-2")
+    duration   = body.get("duration", 10)
+    if not prompt:   return jsonify({"error": "prompt is required"}), 400
+    if not caption:  return jsonify({"error": "caption is required"}), 400
+    if not OPENAI_API_KEY: return jsonify({"error": "OPENAI_API_KEY not set on server"}), 500
+    job_id = new_job_id()
+    jobs[job_id] = {"status": "starting", "logs": [], "step": 0, "video_path": None, "error": None}
+    job_queues[job_id] = queue.Queue()
+    threading.Thread(target=run_pipeline, args=(job_id, prompt, caption, hashtags, product_id, dry_run, model, duration), daemon=True).start()
+    return jsonify({"job_id": job_id})
 
-@app.route(”/api/stream/<job_id>”)
+@app.route("/api/stream/<job_id>")
 def api_stream(job_id):
-if job_id not in jobs:
-return jsonify({“error”: “job not found”}), 404
-def generate():
-for entry in jobs[job_id].get(“logs”, []):
-yield f”data: {json.dumps(entry)}\n\n”
-q = job_queues.get(job_id)
-if not q: return
-while True:
-try:
-entry = q.get(timeout=30)
-yield f”data: {json.dumps(entry)}\n\n”
-if entry.get(“done”): break
-except queue.Empty:
-yield ‘data: {“ping”:true}\n\n’
-return Response(generate(), mimetype=“text/event-stream”, headers={“Cache-Control”: “no-cache”, “X-Accel-Buffering”: “no”})
+    if job_id not in jobs:
+        return jsonify({"error": "job not found"}), 404
+    def generate():
+        for entry in jobs[job_id].get("logs", []):
+            yield f"data: {json.dumps(entry)}\n\n"
+        q = job_queues.get(job_id)
+        if not q: return
+        while True:
+            try:
+                entry = q.get(timeout=30)
+                yield f"data: {json.dumps(entry)}\n\n"
+                if entry.get("done"): break
+            except queue.Empty:
+                yield 'data: {"ping":true}\n\n'
+    return Response(generate(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
-@app.route(”/api/job/<job_id>”)
+@app.route("/api/job/<job_id>")
 def api_job(job_id):
-if job_id not in jobs: return jsonify({“error”: “not found”}), 404
-j = jobs[job_id]
-return jsonify({“status”: j[“status”], “step”: j.get(“step”, 0), “error”: j.get(“error”), “has_video”: j.get(“video_path”) is not None})
+    if job_id not in jobs: return jsonify({"error": "not found"}), 404
+    j = jobs[job_id]
+    return jsonify({"status": j["status"], "step": j.get("step", 0), "error": j.get("error"), "has_video": j.get("video_path") is not None})
 
-@app.route(”/api/presets”, methods=[“GET”])
+@app.route("/api/presets", methods=["GET"])
 def get_presets():
-f = Path(”/tmp/presets.json”)
-return jsonify(json.loads(f.read_text()) if f.exists() else [])
+    f = Path("/tmp/presets.json")
+    return jsonify(json.loads(f.read_text()) if f.exists() else [])
 
-@app.route(”/api/presets”, methods=[“POST”])
+@app.route("/api/presets", methods=["POST"])
 def save_preset():
-f = Path(”/tmp/presets.json”)
-presets = json.loads(f.read_text()) if f.exists() else []
-presets.append(request.get_json() or {})
-f.write_text(json.dumps(presets))
-return jsonify({“ok”: True})
+    f = Path("/tmp/presets.json")
+    presets = json.loads(f.read_text()) if f.exists() else []
+    presets.append(request.get_json() or {})
+    f.write_text(json.dumps(presets))
+    return jsonify({"ok": True})
 
-@app.route(”/api/presets/<int:idx>”, methods=[“DELETE”])
+@app.route("/api/presets/<int:idx>", methods=["DELETE"])
 def delete_preset(idx):
-f = Path(”/tmp/presets.json”)
-presets = json.loads(f.read_text()) if f.exists() else []
-if 0 <= idx < len(presets): presets.pop(idx)
-f.write_text(json.dumps(presets))
-return jsonify({“ok”: True})
+    f = Path("/tmp/presets.json")
+    presets = json.loads(f.read_text()) if f.exists() else []
+    if 0 <= idx < len(presets): presets.pop(idx)
+    f.write_text(json.dumps(presets))
+    return jsonify({"ok": True})
 
-@app.route(”/api/upload-test-video”, methods=[“POST”])
+
+
+@app.route("/api/upload-test-video", methods=["POST"])
 def upload_test_video():
-“”“Accept a user-uploaded video file for TikTok testing.”””
-if “file” not in request.files:
-return jsonify({“error”: “No file provided”}), 400
-f = request.files[“file”]
-if not f.filename:
-return jsonify({“error”: “Empty filename”}), 400
-save_path = OUTPUT_DIR / f”uploaded_test_{f.filename}”
-f.save(str(save_path))
-return jsonify({“ok”: True, “path”: str(save_path), “filename”: f.filename})
+    """Accept a user-uploaded video file for TikTok testing."""
+    if "file" not in request.files:
+        return jsonify({"error": "No file provided"}), 400
+    f = request.files["file"]
+    if not f.filename:
+        return jsonify({"error": "Empty filename"}), 400
+    save_path = OUTPUT_DIR / f"uploaded_test_{f.filename}"
+    f.save(str(save_path))
+    return jsonify({"ok": True, "path": str(save_path), "filename": f.filename})
 
-@app.route(”/api/test-tiktok”, methods=[“POST”])
+@app.route("/api/test-tiktok", methods=["POST"])
 def api_test_tiktok():
-“”“Test TikTok upload only — skips Sora, uses a tiny dummy video.”””
-body = request.get_json() or {}
-caption    = body.get(“caption”, “Test post”).strip()
-hashtags   = body.get(“hashtags”, [])
-product_id = body.get(“product_id”, “”).strip() or None
+    """Test TikTok upload only — skips Sora, uses a tiny dummy video."""
+    body = request.get_json() or {}
+    caption    = body.get("caption", "Test post").strip()
+    hashtags   = body.get("hashtags", [])
+    product_id = body.get("product_id", "").strip() or None
 
-```
-job_id = new_job_id()
-jobs[job_id] = {"status": "starting", "logs": [], "step": 0, "video_path": None, "error": None}
-job_queues[job_id] = queue.Queue()
+    job_id = new_job_id()
+    jobs[job_id] = {"status": "starting", "logs": [], "step": 0, "video_path": None, "error": None}
+    job_queues[job_id] = queue.Queue()
 
-custom_video = body.get("custom_video_path", "").strip() or None
+    custom_video = body.get("custom_video_path", "").strip() or None
 
-def run_tiktok_test():
-    try:
-        jobs[job_id]["status"] = "running"
-        push_step(job_id, 3)
-
-        if custom_video and Path(custom_video).exists():
-            video_path_to_use = Path(custom_video)
-            push_log(job_id, f"Using uploaded video: {video_path_to_use.name}", "step")
-        else:
-            push_log(job_id, "TikTok test — creating dummy video...", "step")
-            dummy_path = OUTPUT_DIR / f"dummy_{job_id}.mp4"
-            dummy_path.write_bytes(_make_dummy_mp4())
-            push_log(job_id, f"Dummy video created → {dummy_path.name}", "info")
-            video_path_to_use = dummy_path
-
-        jobs[job_id]["video_path"] = str(video_path_to_use)
-
-        push_log(job_id, "Starting TikTok upload...", "step")
+    def run_tiktok_test():
         try:
-            from tiktok_uploader.upload import TikTokUploader
-        except ImportError:
-            raise RuntimeError("tiktok-uploader not installed.")
+            jobs[job_id]["status"] = "running"
+            push_step(job_id, 3)
 
-        cookies_list = [{
-            'name': 'sessionid',
-            'value': TIKTOK_SESSION_ID,
-            'domain': '.tiktok.com',
-            'path': '/',
-            'expiry': 2147483647,
-        }]
-        hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
-        full_desc = f"{caption} {hashtag_str}".strip()
-        uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True)
-        video_kwargs = dict(description=full_desc)
-        if product_id:
-            video_kwargs["product_id"] = product_id
-        push_log(job_id, "Uploading via Playwright...", "info")
-        uploader.upload_video(str(video_path_to_use), **video_kwargs)
-        push_step(job_id, 4)
-        push_log(job_id, "Posted to TikTok ✓", "success")
-        jobs[job_id]["status"] = "done"
-        push_log(job_id, "── TikTok test complete ──", "done")
-        if job_id in job_queues:
-            job_queues[job_id].put({"done": True})
-    except Exception as e:
-        jobs[job_id]["status"] = "error"
-        jobs[job_id]["error"] = str(e)
-        push_log(job_id, f"Error: {e}", "error")
-        if job_id in job_queues:
-            job_queues[job_id].put({"done": True, "error": str(e)})
+            if custom_video and Path(custom_video).exists():
+                video_path_to_use = Path(custom_video)
+                push_log(job_id, f"Using uploaded video: {video_path_to_use.name}", "step")
+            else:
+                push_log(job_id, "TikTok test — creating dummy video...", "step")
+                dummy_path = OUTPUT_DIR / f"dummy_{job_id}.mp4"
+                dummy_path.write_bytes(_make_dummy_mp4())
+                push_log(job_id, f"Dummy video created → {dummy_path.name}", "info")
+                video_path_to_use = dummy_path
 
-threading.Thread(target=run_tiktok_test, daemon=True).start()
-return jsonify({"job_id": job_id})
-```
+            jobs[job_id]["video_path"] = str(video_path_to_use)
 
-@app.route(”/api/check-config”)
+            push_log(job_id, "Starting TikTok upload...", "step")
+            try:
+                from tiktok_uploader.upload import TikTokUploader
+            except ImportError:
+                raise RuntimeError("tiktok-uploader not installed.")
+
+            cookies_list = [{
+                'name': 'sessionid',
+                'value': TIKTOK_SESSION_ID,
+                'domain': '.tiktok.com',
+                'path': '/',
+                'expiry': 2147483647,
+            }]
+            hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
+            full_desc = f"{caption} {hashtag_str}".strip()
+            uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True)
+            video_kwargs = dict(description=full_desc)
+            if product_id:
+                video_kwargs["product_id"] = product_id
+            push_log(job_id, "Uploading via Playwright...", "info")
+            uploader.upload_video(str(video_path_to_use), **video_kwargs)
+            push_step(job_id, 4)
+            push_log(job_id, "Posted to TikTok ✓", "success")
+            jobs[job_id]["status"] = "done"
+            push_log(job_id, "── TikTok test complete ──", "done")
+            if job_id in job_queues:
+                job_queues[job_id].put({"done": True})
+        except Exception as e:
+            jobs[job_id]["status"] = "error"
+            jobs[job_id]["error"] = str(e)
+            push_log(job_id, f"Error: {e}", "error")
+            if job_id in job_queues:
+                job_queues[job_id].put({"done": True, "error": str(e)})
+
+    threading.Thread(target=run_tiktok_test, daemon=True).start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/api/check-config")
 def check_config():
-return jsonify({
-“OPENAI_API_KEY”: “set” if OPENAI_API_KEY else “NOT SET”,
-“TIKTOK_SESSION_ID”: f”set ({len(TIKTOK_SESSION_ID)} chars)” if TIKTOK_SESSION_ID else “NOT SET”,
-})
+    return jsonify({
+        "OPENAI_API_KEY": "set" if OPENAI_API_KEY else "NOT SET",
+        "TIKTOK_SESSION_ID": f"set ({len(TIKTOK_SESSION_ID)} chars)" if TIKTOK_SESSION_ID else "NOT SET",
+    })
 
-@app.route(”/health”)
+@app.route("/health")
 def health():
-return jsonify({“ok”: True})
+    return jsonify({"ok": True})
 
-if **name** == “**main**”:
-port = int(os.environ.get(“PORT”, 3000))
-app.run(host=“0.0.0.0”, port=port, debug=False)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 3000))
+    app.run(host="0.0.0.0", port=port, debug=False)
