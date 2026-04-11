@@ -665,7 +665,7 @@ def tiktok_status():
 
 @app.route("/tiktokBI0zng8G1g2hzRNIoRlbLTeycEsoGT2C.txt")
 def tiktok_verify():
-    return "tiktokBI0zng8G1g2hzRNIoRlbLTeycEsoGT2C", 200, {"Content-Type": "text/plain"}
+    return "tiktok-developers-site-verification=BI0zng8G1g2hzRNIoRlbLTeycEsoGT2C", 200, {"Content-Type": "text/plain"}
 
 @app.route("/health")
 def health():
