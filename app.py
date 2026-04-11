@@ -156,27 +156,63 @@ def upload_to_tiktok(video_path, caption, hashtags, product_id, job_id):
         push_log(job_id, "Using cookie + proxy method...", "info")
         try:
             from tiktok_uploader.upload import TikTokUploader
+            import tiktok_uploader.upload as _ttu_mod
+            from playwright.sync_api import sync_playwright
         except ImportError:
             raise RuntimeError("tiktok-uploader not installed.")
+
         proxy = parse_proxy(PROXY_URL)
         push_log(job_id, f"Proxy: {proxy['host']}:{proxy['port']} user={proxy['user'][:6]}...", "info")
-        # Embed credentials directly in the server URL — required for Chrome + authenticated proxies
-        # tiktok-uploader internally calls chromium.launch(proxy={server, username, password})
-        # but Chrome ignores username/password fields and requires creds in the URL itself
-        proxy_with_creds = {
-            "server": f"http://{proxy['user']}:{proxy['pass']}@{proxy['host']}:{proxy['port']}",
+
+        # tiktok-uploader passes proxy dict keys host/port/user/pass to Playwright
+        # but Chrome requires creds in the server URL. We monkeypatch chromium.launch
+        # to intercept and rewrite the proxy config before Chrome sees it.
+        _orig_launch = None
+        def _patched_launch(**kwargs):
+            if 'proxy' in kwargs:
+                p = kwargs['proxy']
+                # Rewrite to embed creds in server URL
+                host = p.get('host', proxy['host'])
+                port = p.get('port', proxy['port'])
+                user = p.get('username') or p.get('user') or proxy['user']
+                pwd  = p.get('password') or p.get('pass') or proxy['pass']
+                kwargs['proxy'] = {"server": f"http://{user}:{pwd}@{host}:{port}"}
+            return _orig_launch(**kwargs)
+
+        # Pass proxy in tiktok-uploader's expected format (host/port/user/pass)
+        # The monkeypatch above rewrites it before Playwright sees it
+        proxy_dict = {
+            "host": proxy['host'],
+            "port": proxy['port'],
+            "user": proxy['user'],
+            "pass": proxy['pass'],
         }
         cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID,
                          "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
         hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
         full_desc = f"{caption} {hashtag_str}".strip()
-        uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy_with_creds)
-        video_kwargs = dict(description=full_desc)
-        if product_id:
-            video_kwargs["product_id"] = product_id
-            push_log(job_id, f"Attaching product ID: {product_id}", "info")
-        push_log(job_id, "Uploading via Playwright + proxy...", "info")
-        uploader.upload_video(str(video_path), **video_kwargs)
+
+        uploader = TikTokUploader(
+            cookies_list=cookies_list,
+            browser="chrome",
+            headless=True,
+            proxy=proxy_dict,
+        )
+
+        # Monkeypatch the chromium launcher inside the uploader instance
+        import playwright.sync_api as _pw
+        _orig_launch = _pw.BrowserType.launch
+        _pw.BrowserType.launch = _patched_launch
+
+        try:
+            video_kwargs = dict(description=full_desc)
+            if product_id:
+                video_kwargs["product_id"] = product_id
+                push_log(job_id, f"Attaching product ID: {product_id}", "info")
+            push_log(job_id, "Uploading via Playwright + proxy...", "info")
+            uploader.upload_video(str(video_path), **video_kwargs)
+        finally:
+            _pw.BrowserType.launch = _orig_launch  # restore original
     else:
         raise RuntimeError("No upload method: set PROXY_URL in Railway Variables, or connect TikTok API at /tiktok/connect")
 
@@ -626,6 +662,10 @@ def tiktok_status():
     expires_in = int(data.get("expires_at", 0) - time.time())
     return jsonify({"connected": True, "expires_in_hours": round(expires_in / 3600, 1),
                     "needs_refresh": expires_in < 3600})
+
+@app.route("/tiktokBI0zng8G1g2hzRNIoRlbLTeycEsoGT2C.txt")
+def tiktok_verify():
+    return "tiktokBI0zng8G1g2hzRNIoRlbLTeycEsoGT2C", 200, {"Content-Type": "text/plain"}
 
 @app.route("/health")
 def health():
