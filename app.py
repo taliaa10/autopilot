@@ -589,6 +589,76 @@ def tiktok_status():
     return jsonify({"connected": True, "expires_in_hours": round(expires_in / 3600, 1),
                     "needs_refresh": expires_in < 3600})
 
+
+@app.route("/privacy")
+def privacy():
+    return """<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Privacy Policy - Autopilot</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:680px;margin:60px auto;padding:0 24px;line-height:1.8;color:#1a1a1a}h1{font-size:1.6rem;font-weight:600;margin-bottom:4px}h2{font-size:1.1rem;font-weight:600;margin-top:2rem}p,li{font-size:0.97rem;color:#333}.meta{color:#888;font-size:0.85rem;margin-bottom:2.5rem}</style>
+</head><body>
+<h1>Privacy Policy</h1>
+<p class="meta">Last updated: April 11, 2026</p>
+<p>This Privacy Policy describes how Autopilot ("the App", "we", "us") handles information when you use our service. Autopilot is a personal productivity tool used exclusively by its developer to post video content to a TikTok creator account.</p>
+<h2>1. Who We Are</h2>
+<p>Autopilot is a personal, non-commercial tool. It is not a public-facing product and is not available to the general public.</p>
+<h2>2. Information We Collect</h2>
+<p>The App does not collect personal information from end users because there are no end users other than the developer. The only data processed by the App is:</p>
+<ul>
+<li>TikTok account credentials (session tokens) used to authenticate with TikTok on the developer's behalf</li>
+<li>Video content created by the developer</li>
+<li>Post metadata (captions, hashtags) entered by the developer</li>
+</ul>
+<h2>3. How We Use Information</h2>
+<p>All data processed by the App is used solely to post video content to the developer's own TikTok account via the TikTok Content Posting API. No data is used for advertising, analytics, or any other purpose.</p>
+<h2>4. Data Sharing</h2>
+<p>No personal data is shared with any third parties. The App communicates only with TikTok's official API for the purpose of posting content to the developer's own account.</p>
+<h2>5. TikTok API Usage</h2>
+<p>This App uses the TikTok Content Posting API under TikTok's developer terms. The App only accesses and posts to the developer's own TikTok account. No other TikTok user's data is accessed or processed.</p>
+<h2>6. Data Storage</h2>
+<p>The App is hosted on Railway (railway.app). No personal data is stored persistently. Video files are stored temporarily during processing and deleted after posting.</p>
+<h2>7. Third-Party Services</h2>
+<p>The App integrates with:</p>
+<ul>
+<li>TikTok API (content posting) — tiktok.com/legal/privacy-policy</li>
+<li>Railway (hosting) — railway.app/legal/privacy</li>
+</ul>
+<h2>8. Your Rights</h2>
+<p>As this App has no general users, standard user rights (access, deletion, portability) are not applicable. If you have questions, contact us at the email below.</p>
+<h2>9. Changes to This Policy</h2>
+<p>We may update this policy as the App evolves. The "last updated" date at the top reflects the most recent revision.</p>
+<h2>10. Contact</h2>
+<p>If you have questions about this policy, contact: liatts2025@gmail.com</p>
+</body></html>"""
+
+@app.route("/terms")
+def terms():
+    return """<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Terms of Service - Autopilot</title>
+<style>body{font-family:-apple-system,BlinkMacSystemFont,sans-serif;max-width:680px;margin:60px auto;padding:0 24px;line-height:1.8;color:#1a1a1a}h1{font-size:1.6rem;font-weight:600;margin-bottom:4px}h2{font-size:1.1rem;font-weight:600;margin-top:2rem}p,li{font-size:0.97rem;color:#333}.meta{color:#888;font-size:0.85rem;margin-bottom:2.5rem}</style>
+</head><body>
+<h1>Terms of Service</h1>
+<p class="meta">Last updated: April 11, 2026</p>
+<p>These Terms of Service govern the use of Autopilot ("the App"). By accessing or using the App, you agree to these terms.</p>
+<h2>1. Description of Service</h2>
+<p>Autopilot is a personal productivity tool that automates the posting of video content to a TikTok creator account. The App is not a public service and is not intended for use by anyone other than its developer.</p>
+<h2>2. Permitted Use</h2>
+<p>The App is for the exclusive personal use of its developer. Unauthorized access to or use of the App is strictly prohibited.</p>
+<h2>3. TikTok Platform Compliance</h2>
+<p>The App is built using TikTok's official Content Posting API and operates in full compliance with TikTok's Developer Terms of Service and Community Guidelines. The App only posts content to the developer's own TikTok account and does not interact with other users' accounts.</p>
+<h2>4. Content</h2>
+<p>All video content posted through the App is created by the developer. The developer is solely responsible for ensuring all posted content complies with TikTok's Community Guidelines and Terms of Service.</p>
+<h2>5. No Warranties</h2>
+<p>The App is provided "as is" without warranties of any kind. We make no guarantees regarding uptime, availability, or fitness for any particular purpose.</p>
+<h2>6. Limitation of Liability</h2>
+<p>To the fullest extent permitted by law, Autopilot shall not be liable for any indirect, incidental, or consequential damages arising from use of the App.</p>
+<h2>7. Changes to Terms</h2>
+<p>We reserve the right to modify these terms at any time. The "last updated" date reflects the most recent revision.</p>
+<h2>8. Contact</h2>
+<p>For questions regarding these terms, contact: liatts2025@gmail.com</p>
+</body></html>"""
+
 @app.route("/tiktokBI0zng8G1g2hzRNIoRlbLTeycEsoGT2C.txt")
 def tiktok_verify():
     return "tiktok-developers-site-verification=BI0zng8G1g2hzRNIoRlbLTeycEsoGT2C", 200, {"Content-Type": "text/plain"}
