@@ -160,11 +160,17 @@ def upload_to_tiktok(video_path, caption, hashtags, product_id, job_id):
             raise RuntimeError("tiktok-uploader not installed.")
         proxy = parse_proxy(PROXY_URL)
         push_log(job_id, f"Proxy: {proxy['host']}:{proxy['port']} user={proxy['user'][:6]}...", "info")
+        # Embed credentials directly in the server URL — required for Chrome + authenticated proxies
+        # tiktok-uploader internally calls chromium.launch(proxy={server, username, password})
+        # but Chrome ignores username/password fields and requires creds in the URL itself
+        proxy_with_creds = {
+            "server": f"http://{proxy['user']}:{proxy['pass']}@{proxy['host']}:{proxy['port']}",
+        }
         cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID,
                          "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
         hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
         full_desc = f"{caption} {hashtag_str}".strip()
-        uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy)
+        uploader = TikTokUploader(cookies_list=cookies_list, browser="chrome", headless=True, proxy=proxy_with_creds)
         video_kwargs = dict(description=full_desc)
         if product_id:
             video_kwargs["product_id"] = product_id
