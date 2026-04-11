@@ -21,8 +21,6 @@ app = Flask(__name__)
 
 # ── Config ─────────────────────────────────────────────────────────────────────
 OPENAI_API_KEY       = os.environ.get("OPENAI_API_KEY", "")
-TIKTOK_SESSION_ID    = os.environ.get("TIKTOK_SESSION_ID", "")
-PROXY_URL            = os.environ.get("PROXY_URL", "")
 TIKTOK_CLIENT_KEY    = os.environ.get("TIKTOK_CLIENT_KEY", "")
 TIKTOK_CLIENT_SECRET = os.environ.get("TIKTOK_CLIENT_SECRET", "")
 TIKTOK_REDIRECT_URI  = os.environ.get("TIKTOK_REDIRECT_URI", "")
@@ -124,97 +122,26 @@ def tiktok_check_post_status(publish_id):
     resp.raise_for_status()
     return resp.json()
 
-# ── Proxy helper ───────────────────────────────────────────────────────────────
-def parse_proxy(proxy_url_str):
-    s = proxy_url_str.strip().replace("http://", "").replace("https://", "")
-    if "@" in s:
-        creds, host_port = s.rsplit("@", 1)
-        user, passwd = creds.split(":", 1)
-        host, port = host_port.rsplit(":", 1)
-    else:
-        user, passwd = "", ""
-        host, port = s.rsplit(":", 1)
-    return {"host": host, "port": port, "user": user, "pass": passwd}
-
 # ── Upload dispatcher ──────────────────────────────────────────────────────────
 def upload_to_tiktok(video_path, caption, hashtags, product_id, job_id):
     token_file = Path("/tmp/tiktok_token.json")
-    if token_file.exists():
-        push_log(job_id, "Using TikTok Official Content Posting API...", "info")
-        publish_id = tiktok_post_video(video_path, caption, hashtags, product_id)
-        push_log(job_id, f"Uploaded → publish_id={publish_id}", "info")
-        for _ in range(20):
-            time.sleep(5)
-            status_resp = tiktok_check_post_status(publish_id)
-            post_status = status_resp.get("data", {}).get("status", "unknown")
-            push_log(job_id, f"Post status: {post_status}", "info")
-            if post_status in ("PUBLISH_COMPLETE", "SUCCESS"):
-                break
-            elif post_status in ("FAILED", "ERROR"):
-                raise RuntimeError(f"TikTok post failed: {status_resp}")
-    elif PROXY_URL:
-        push_log(job_id, "Using cookie + proxy method...", "info")
-        try:
-            from tiktok_uploader.upload import TikTokUploader
-            import tiktok_uploader.upload as _ttu_mod
-            from playwright.sync_api import sync_playwright
-        except ImportError:
-            raise RuntimeError("tiktok-uploader not installed.")
-
-        proxy = parse_proxy(PROXY_URL)
-        push_log(job_id, f"Proxy: {proxy['host']}:{proxy['port']} user={proxy['user'][:6]}...", "info")
-
-        # tiktok-uploader passes proxy dict keys host/port/user/pass to Playwright
-        # but Chrome requires creds in the server URL. We monkeypatch chromium.launch
-        # to intercept and rewrite the proxy config before Chrome sees it.
-        _orig_launch = None
-        def _patched_launch(**kwargs):
-            if 'proxy' in kwargs:
-                p = kwargs['proxy']
-                # Rewrite to embed creds in server URL
-                host = p.get('host', proxy['host'])
-                port = p.get('port', proxy['port'])
-                user = p.get('username') or p.get('user') or proxy['user']
-                pwd  = p.get('password') or p.get('pass') or proxy['pass']
-                kwargs['proxy'] = {"server": f"http://{user}:{pwd}@{host}:{port}"}
-            return _orig_launch(**kwargs)
-
-        # Pass proxy in tiktok-uploader's expected format (host/port/user/pass)
-        # The monkeypatch above rewrites it before Playwright sees it
-        proxy_dict = {
-            "host": proxy['host'],
-            "port": proxy['port'],
-            "user": proxy['user'],
-            "pass": proxy['pass'],
-        }
-        cookies_list = [{"name": "sessionid", "value": TIKTOK_SESSION_ID,
-                         "domain": ".tiktok.com", "path": "/", "expiry": 2147483647}]
-        hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
-        full_desc = f"{caption} {hashtag_str}".strip()
-
-        uploader = TikTokUploader(
-            cookies_list=cookies_list,
-            browser="chrome",
-            headless=True,
-            proxy=proxy_dict,
+    if not token_file.exists():
+        raise RuntimeError(
+            "TikTok not connected. Visit /tiktok/connect to authorize your account."
         )
+    push_log(job_id, "Posting via TikTok Content Posting API...", "info")
+    publish_id = tiktok_post_video(video_path, caption, hashtags, product_id)
+    push_log(job_id, f"Uploaded → publish_id={publish_id}", "info")
+    for _ in range(20):
+        time.sleep(5)
+        status_resp = tiktok_check_post_status(publish_id)
+        post_status = status_resp.get("data", {}).get("status", "unknown")
+        push_log(job_id, f"Post status: {post_status}", "info")
+        if post_status in ("PUBLISH_COMPLETE", "SUCCESS"):
+            break
+        elif post_status in ("FAILED", "ERROR"):
+            raise RuntimeError(f"TikTok post failed: {status_resp}")
 
-        # Monkeypatch the chromium launcher inside the uploader instance
-        import playwright.sync_api as _pw
-        _orig_launch = _pw.BrowserType.launch
-        _pw.BrowserType.launch = _patched_launch
-
-        try:
-            video_kwargs = dict(description=full_desc)
-            if product_id:
-                video_kwargs["product_id"] = product_id
-                push_log(job_id, f"Attaching product ID: {product_id}", "info")
-            push_log(job_id, "Uploading via Playwright + proxy...", "info")
-            uploader.upload_video(str(video_path), **video_kwargs)
-        finally:
-            _pw.BrowserType.launch = _orig_launch  # restore original
-    else:
-        raise RuntimeError("No upload method: set PROXY_URL in Railway Variables, or connect TikTok API at /tiktok/connect")
 
 # ── Dummy MP4 ──────────────────────────────────────────────────────────────────
 def _make_dummy_mp4():
@@ -454,7 +381,7 @@ document.addEventListener('DOMContentLoaded',async()=>{
   document.getElementById('prompt').addEventListener('input',()=>counter('prompt','pc',500));
   document.getElementById('caption').addEventListener('input',()=>counter('caption','cc',150));
   await loadPresets();
-  try{const cfg=await fetch('/api/check-config').then(r=>r.json());if((!cfg.PROXY_URL||cfg.PROXY_URL==='NOT SET')&&!cfg.TIKTOK_API_CONNECTED){setTimeout(()=>toast('Add PROXY_URL to Railway Variables'),800);}}catch(e){}
+  try{const cfg=await fetch('/api/check-config').then(r=>r.json());if(!cfg.TIKTOK_API_CONNECTED){setTimeout(()=>toast('TikTok not connected — visit /tiktok/connect to authorize'),800);}}catch(e){}
 });
 function counter(id,cid,max){const l=document.getElementById(id).value.length;const e=document.getElementById(cid);e.textContent=`${l}/${max}`;e.className='counter'+(l>max?' over':l>max*0.8?' warn':'');}
 function setupChipInput(){const area=document.getElementById('chipArea');const inp=document.getElementById('chipInput');area.addEventListener('click',()=>inp.focus());inp.addEventListener('keydown',e=>{if((e.key===' '||e.key==='Enter')&&inp.value.trim()){e.preventDefault();addChip(inp.value.trim());inp.value='';}else if(e.key==='Backspace'&&!inp.value&&hashtags.length){removeChip(hashtags.length-1);}});}
@@ -620,10 +547,9 @@ def delete_preset(idx):
 def check_config():
     return jsonify({
         "OPENAI_API_KEY":       "set" if OPENAI_API_KEY else "NOT SET",
-        "TIKTOK_SESSION_ID":    f"set ({len(TIKTOK_SESSION_ID)} chars)" if TIKTOK_SESSION_ID else "NOT SET",
-        "PROXY_URL":            "set" if PROXY_URL else "NOT SET",
+        "TIKTOK_CLIENT_KEY":    "set" if TIKTOK_CLIENT_KEY else "NOT SET",
         "TIKTOK_API_CONNECTED": Path("/tmp/tiktok_token.json").exists(),
-        "tip": "Set PROXY_URL + TIKTOK_SESSION_ID, or connect official API at /tiktok/connect",
+        "tip": "Visit /tiktok/connect to authorize your TikTok account",
     })
 
 @app.route("/tiktok/connect")
