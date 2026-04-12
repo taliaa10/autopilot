@@ -97,7 +97,8 @@ def tiktok_post_video(video_path, caption, hashtags, product_id=None):
         raise RuntimeError(f"creator_info failed {creator_resp.status_code}: {creator_resp.text[:300]}")
     creator_data = creator_resp.json()
     privacy_options = creator_data.get("data", {}).get("privacy_level_options", ["PUBLIC_TO_EVERYONE"])
-    privacy = "PUBLIC_TO_EVERYONE" if "PUBLIC_TO_EVERYONE" in privacy_options else privacy_options[0]
+    # Unaudited apps must post to private — once approved this can be PUBLIC_TO_EVERYONE
+    privacy = "SELF_ONLY" if "SELF_ONLY" in privacy_options else privacy_options[-1]
     log.info(f"Creator info: privacy_options={privacy_options} chosen={privacy}")
     video_size = video_path.stat().st_size
     hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
