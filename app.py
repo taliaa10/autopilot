@@ -663,6 +663,32 @@ def terms():
 def tiktok_verify():
     return "tiktok-developers-site-verification=BI0zng8G1g2hzRNIoRlbLTeycEsoGT2C", 200, {"Content-Type": "text/plain"}
 
+@app.route("/tiktok/debug")
+def tiktok_debug():
+    """Show current token info for debugging."""
+    token_file = Path("/tmp/tiktok_token.json")
+    if not token_file.exists():
+        return jsonify({"error": "No token file — not connected"})
+    data = json.loads(token_file.read_text())
+    # Mask the actual token but show everything else
+    debug = {k: v for k, v in data.items() if k not in ("access_token", "refresh_token")}
+    debug["access_token"] = data.get("access_token", "")[:12] + "..." if data.get("access_token") else "missing"
+    debug["has_refresh_token"] = bool(data.get("refresh_token"))
+    debug["expires_in_hours"] = round((data.get("expires_at", 0) - time.time()) / 3600, 1)
+    # Try to call TikTok API to get user info and see what scopes work
+    try:
+        resp = requests.get(
+            "https://open.tiktokapis.com/v2/user/info/",
+            headers={"Authorization": f"Bearer {data['access_token']}"},
+            params={"fields": "open_id,display_name"},
+            timeout=10,
+        )
+        debug["user_info_status"] = resp.status_code
+        debug["user_info_response"] = resp.json()
+    except Exception as e:
+        debug["user_info_error"] = str(e)
+    return jsonify(debug)
+
 @app.route("/health")
 def health():
     return jsonify({"ok": True})
