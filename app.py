@@ -93,17 +93,39 @@ def tiktok_post_video(video_path, caption, hashtags, product_id=None):
     access_token = tiktok_get_token()
     headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json; charset=UTF-8"}
     creator_resp = requests.post("https://open.tiktokapis.com/v2/post/publish/creator_info/query/", headers=headers, timeout=30)
-    creator_resp.raise_for_status()
-    privacy_options = creator_resp.json().get("data", {}).get("privacy_level_options", ["PUBLIC_TO_EVERYONE"])
+    if not creator_resp.ok:
+        raise RuntimeError(f"creator_info failed {creator_resp.status_code}: {creator_resp.text[:300]}")
+    creator_data = creator_resp.json()
+    privacy_options = creator_data.get("data", {}).get("privacy_level_options", ["PUBLIC_TO_EVERYONE"])
     privacy = "PUBLIC_TO_EVERYONE" if "PUBLIC_TO_EVERYONE" in privacy_options else privacy_options[0]
+    log.info(f"Creator info: privacy_options={privacy_options} chosen={privacy}")
     video_size = video_path.stat().st_size
     hashtag_str = " ".join(f"#{h.lstrip('#')}" for h in hashtags)
     title = f"{caption} {hashtag_str}".strip()[:2200]
-    init_resp = requests.post("https://open.tiktokapis.com/v2/post/publish/video/init/", headers=headers,
-        json={"post_info": {"title": title, "privacy_level": privacy, "disable_duet": False, "disable_comment": False, "disable_stitch": False},
-              "source_info": {"source": "FILE_UPLOAD", "video_size": video_size, "chunk_size": video_size, "total_chunk_count": 1}},
-        timeout=30)
-    init_resp.raise_for_status()
+    init_payload = {
+        "post_info": {
+            "title": title,
+            "privacy_level": privacy,
+            "disable_duet": False,
+            "disable_comment": False,
+            "disable_stitch": False,
+        },
+        "source_info": {
+            "source": "FILE_UPLOAD",
+            "video_size": video_size,
+            "chunk_size": video_size,
+            "total_chunk_count": 1,
+        },
+    }
+    log.info(f"Posting to video/init with privacy={privacy} size={video_size}")
+    init_resp = requests.post(
+        "https://open.tiktokapis.com/v2/post/publish/video/init/",
+        headers=headers,
+        json=init_payload,
+        timeout=30,
+    )
+    if not init_resp.ok:
+        raise RuntimeError(f"video/init failed {init_resp.status_code}: {init_resp.text[:300]}")
     init_data = init_resp.json()
     publish_id = init_data["data"]["publish_id"]
     upload_url = init_data["data"]["upload_url"]
