@@ -239,6 +239,8 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
 
         jobs[job_id]["video_path"] = str(video_path)
         push_log(job_id, f"Saved → {video_path.name}", "success")
+        # Write to disk so any Gunicorn worker can serve the download
+        (OUTPUT_DIR / f"{job_id}.json").write_text(json.dumps({"video_path": str(video_path)}))
         if job_id in job_queues:
             job_queues[job_id].put({"video_ready": True})
 
@@ -499,9 +501,17 @@ def api_job(job_id):
 
 @app.route("/api/download/<job_id>")
 def api_download(job_id):
-    if job_id not in jobs:
-        return jsonify({"error": "job not found"}), 404
-    video_path = jobs[job_id].get("video_path")
+    # Check in-memory first, then fall back to disk (handles multi-worker deployments)
+    video_path = None
+    if job_id in jobs:
+        video_path = jobs[job_id].get("video_path")
+    if not video_path:
+        job_file = OUTPUT_DIR / f"{job_id}.json"
+        if job_file.exists():
+            try:
+                video_path = json.loads(job_file.read_text()).get("video_path")
+            except Exception:
+                pass
     if not video_path or not Path(video_path).exists():
         return jsonify({"error": "video not available"}), 404
     p = Path(video_path)
