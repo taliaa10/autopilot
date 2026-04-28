@@ -199,6 +199,7 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
         job_sora_id = data.get("id") or (data.get("data") or [{}])[0].get("id")
         if not job_sora_id:
             raise RuntimeError(f"No job ID in response: {str(data)[:200]}")
+        jobs[job_id]["sora_id"] = job_sora_id
         push_log(job_id, f"Job queued → id={job_sora_id}", "info")
 
         video_url = None
@@ -238,11 +239,17 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
                 for chunk in cr.iter_content(8192): f.write(chunk)
 
         jobs[job_id]["video_path"] = str(video_path)
+        jobs[job_id]["sora_url"]   = video_url
         push_log(job_id, f"Saved → {video_path.name}", "success")
-        # Write to disk so any Gunicorn worker can serve the download
-        (OUTPUT_DIR / f"{job_id}.json").write_text(json.dumps({"video_path": str(video_path)}))
+        # Write to disk so any Gunicorn worker can serve the download,
+        # and so the sora_id survives a Railway container restart.
+        (OUTPUT_DIR / f"{job_id}.json").write_text(json.dumps({
+            "video_path": str(video_path),
+            "sora_id":    job_sora_id,
+            "sora_url":   video_url,
+        }))
         if job_id in job_queues:
-            job_queues[job_id].put({"video_ready": True})
+            job_queues[job_id].put({"video_ready": True, "sora_id": job_sora_id})
 
         if dry_run:
             push_step(job_id, 3)
@@ -431,9 +438,10 @@ function setStatus(state,text){document.getElementById('statusPill').className='
 function copyLog(){const lines=[...document.getElementById('log').querySelectorAll('.log-line')].map(el=>el.textContent).join('\n');const btn=document.getElementById('copyLogBtn');function flash(){btn.textContent='copied!';btn.style.color='var(--cyan)';setTimeout(()=>{btn.textContent='copy';btn.style.color='';},2000);}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(lines).then(flash).catch(()=>fallbackCopy(lines,flash));}else{fallbackCopy(lines,flash);}}
 function fallbackCopy(text,cb){const ta=document.createElement('textarea');ta.value=text;ta.style.cssText='position:fixed;top:-9999px;left:-9999px;';document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand('copy');cb();}catch(e){}document.body.removeChild(ta);}
 async function handleVideoFile(input){const file=input.files[0];if(!file)return;const label=document.getElementById('testVideoLabel');label.textContent='Uploading '+file.name+'...';const fd=new FormData();fd.append('file',file);try{const res=await fetch('/api/upload-test-video',{method:'POST',body:fd});const data=await res.json();if(data.ok){window._uploadedTestVideoPath=data.path;label.textContent='OK '+data.filename+' ready';label.style.color='var(--cyan)';}else{label.textContent='Failed: '+(data.error||'error');label.style.color='var(--red)';}}catch(e){label.textContent='Error: '+e.message;label.style.color='var(--red)';}}
-function streamJob(job_id,onDone){currentJobId=job_id;addLog(`Job: ${job_id}`,'accent');const evtSource=new EventSource(`/api/stream/${job_id}`);evtSource.onmessage=(e)=>{const entry=JSON.parse(e.data);if(entry.ping)return;if(entry.video_ready){document.getElementById('dlBtn').style.display='';return;}if(entry.step!==undefined){setStep(entry.step);return;}if(entry.done){evtSource.close();onDone(!entry.error,entry.error);return;}if(entry.msg)addLog(entry.msg,entry.level||'info');};evtSource.onerror=()=>{evtSource.close();addLog('Connection lost','error');setStatus('error','error');onDone(false,'connection lost');};}
-function downloadVideo(){if(!currentJobId)return;const a=document.createElement('a');a.href=`/api/download/${currentJobId}`;a.download='';document.body.appendChild(a);a.click();document.body.removeChild(a);}
-async function runPipeline(){if(isRunning)return;const prompt=document.getElementById('prompt').value.trim();const caption=document.getElementById('caption').value.trim();if(!prompt){toast('Enter a prompt');return;}if(!caption){toast('Enter a caption');return;}isRunning=true;clearLog();resetSteps();document.getElementById('dlBtn').style.display='none';setStatus('running','running');const btn=document.getElementById('runBtn');btn.textContent='Running...';btn.classList.add('running');btn.disabled=true;document.getElementById('testBtn').disabled=true;try{const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,caption,hashtags:[...hashtags],product_id:document.getElementById('productId').value.trim(),dry_run:document.getElementById('dryRun').checked,model:document.getElementById('model').value,duration:parseInt(document.getElementById('duration').value)})});const data=await res.json();if(data.error){addLog(data.error,'error');setStatus('error','error');finishRun(false);return;}streamJob(data.job_id,(success)=>{if(success){allDone();setStatus('done','done');setupScheduler();}else setStatus('error','error');finishRun(success);});}catch(err){addLog(`Error: ${err.message}`,'error');setStatus('error','error');finishRun(false);}}
+let currentSoraId=null;
+function streamJob(job_id,onDone){currentJobId=job_id;addLog(`Job: ${job_id}`,'accent');const evtSource=new EventSource(`/api/stream/${job_id}`);evtSource.onmessage=(e)=>{const entry=JSON.parse(e.data);if(entry.ping)return;if(entry.video_ready){if(entry.sora_id)currentSoraId=entry.sora_id;document.getElementById('dlBtn').style.display='';return;}if(entry.step!==undefined){setStep(entry.step);return;}if(entry.done){evtSource.close();onDone(!entry.error,entry.error);return;}if(entry.msg)addLog(entry.msg,entry.level||'info');};evtSource.onerror=()=>{evtSource.close();addLog('Connection lost','error');setStatus('error','error');onDone(false,'connection lost');};}
+function downloadVideo(){if(!currentJobId)return;let url=`/api/download/${currentJobId}`;if(currentSoraId)url+=`?sora_id=${encodeURIComponent(currentSoraId)}`;const a=document.createElement('a');a.href=url;a.download='';document.body.appendChild(a);a.click();document.body.removeChild(a);}
+async function runPipeline(){if(isRunning)return;const prompt=document.getElementById('prompt').value.trim();const caption=document.getElementById('caption').value.trim();if(!prompt){toast('Enter a prompt');return;}if(!caption){toast('Enter a caption');return;}isRunning=true;clearLog();resetSteps();document.getElementById('dlBtn').style.display='none';currentSoraId=null;setStatus('running','running');const btn=document.getElementById('runBtn');btn.textContent='Running...';btn.classList.add('running');btn.disabled=true;document.getElementById('testBtn').disabled=true;try{const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,caption,hashtags:[...hashtags],product_id:document.getElementById('productId').value.trim(),dry_run:document.getElementById('dryRun').checked,model:document.getElementById('model').value,duration:parseInt(document.getElementById('duration').value)})});const data=await res.json();if(data.error){addLog(data.error,'error');setStatus('error','error');finishRun(false);return;}streamJob(data.job_id,(success)=>{if(success){allDone();setStatus('done','done');setupScheduler();}else setStatus('error','error');finishRun(success);});}catch(err){addLog(`Error: ${err.message}`,'error');setStatus('error','error');finishRun(false);}}
 async function testTikTok(){if(isRunning)return;isRunning=true;clearLog();resetSteps();setStatus('running','testing');const btn=document.getElementById('testBtn');btn.textContent='Testing...';btn.disabled=true;document.getElementById('runBtn').disabled=true;addLog('TikTok-only test (skipping Sora)...','accent');try{const res=await fetch('/api/test-tiktok',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caption:document.getElementById('caption').value.trim()||'Test post',hashtags:[...hashtags],product_id:document.getElementById('productId').value.trim(),custom_video_path:window._uploadedTestVideoPath||''})});const data=await res.json();if(data.error){addLog(data.error,'error');setStatus('error','error');finishTest(false);return;}streamJob(data.job_id,(success)=>{if(success){allDone();setStatus('done','done');}else setStatus('error','error');finishTest(success);});}catch(err){addLog(`Error: ${err.message}`,'error');setStatus('error','error');finishTest(false);}}
 function finishRun(success){isRunning=false;const btn=document.getElementById('runBtn');btn.classList.remove('running');btn.disabled=false;document.getElementById('testBtn').disabled=false;if(success){btn.classList.add('success-state');btn.textContent='Done - Run Again';setTimeout(()=>{btn.classList.remove('success-state');btn.textContent='&#9654; Run Pipeline';setStatus('idle','idle');},5000);}else btn.textContent='&#9654; Run Pipeline';}
 function finishTest(success){isRunning=false;const btn=document.getElementById('testBtn');btn.disabled=false;document.getElementById('runBtn').disabled=false;btn.textContent=success?'TikTok Test Passed!':'&#128248; Test TikTok Upload Only';if(success)setTimeout(()=>{btn.textContent='&#128248; Test TikTok Upload Only';setStatus('idle','idle');},5000);}
@@ -501,21 +509,60 @@ def api_job(job_id):
 
 @app.route("/api/download/<job_id>")
 def api_download(job_id):
-    # Check in-memory first, then fall back to disk (handles multi-worker deployments)
-    video_path = None
+    # 1. Collect metadata from memory
+    meta = {}
     if job_id in jobs:
-        video_path = jobs[job_id].get("video_path")
-    if not video_path:
+        meta["video_path"] = jobs[job_id].get("video_path")
+        meta["sora_id"]    = jobs[job_id].get("sora_id")
+        meta["sora_url"]   = jobs[job_id].get("sora_url")
+
+    # 2. Fall back to disk (handles multi-worker and cross-restart cases)
+    if not meta.get("sora_id"):
         job_file = OUTPUT_DIR / f"{job_id}.json"
         if job_file.exists():
             try:
-                video_path = json.loads(job_file.read_text()).get("video_path")
+                disk = json.loads(job_file.read_text())
+                for k in ("video_path", "sora_id", "sora_url"):
+                    meta.setdefault(k, disk.get(k))
             except Exception:
                 pass
-    if not video_path or not Path(video_path).exists():
+
+    # 3. sora_id can also come from the browser as a query param (survives full /tmp wipe)
+    sora_id   = meta.get("sora_id") or request.args.get("sora_id", "").strip() or None
+    video_path = meta.get("video_path")
+    sora_url   = meta.get("sora_url")
+
+    # 4. Serve directly if the file is still on disk
+    if video_path and Path(video_path).exists():
+        p = Path(video_path)
+        return send_file(str(p), as_attachment=True, download_name=p.name, mimetype="video/mp4")
+
+    # 5. File is gone — re-fetch from OpenAI using the sora_id
+    if not sora_id or not OPENAI_API_KEY:
         return jsonify({"error": "video not available"}), 404
-    p = Path(video_path)
-    return send_file(str(p), as_attachment=True, download_name=p.name, mimetype="video/mp4")
+
+    try:
+        oai_headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+        # Try the CDN URL first (fast), fall back to the API content endpoint
+        if sora_url:
+            r = requests.get(sora_url, stream=True, timeout=120)
+            if not r.ok:
+                r = requests.get(f"https://api.openai.com/v1/videos/{sora_id}/content",
+                                 headers=oai_headers, stream=True, timeout=120)
+        else:
+            r = requests.get(f"https://api.openai.com/v1/videos/{sora_id}/content",
+                             headers=oai_headers, stream=True, timeout=120)
+        r.raise_for_status()
+
+        filename  = Path(video_path).name if video_path else f"sora_{job_id}.mp4"
+        save_path = OUTPUT_DIR / filename
+        with open(save_path, "wb") as f:
+            for chunk in r.iter_content(8192):
+                f.write(chunk)
+        return send_file(str(save_path), as_attachment=True, download_name=filename, mimetype="video/mp4")
+    except Exception as e:
+        log.warning(f"Re-fetch failed for {job_id}: {e}")
+        return jsonify({"error": "video not available"}), 404
 
 @app.route("/api/upload-test-video", methods=["POST"])
 def upload_test_video():
