@@ -12,7 +12,7 @@ import requests
 import queue
 from pathlib import Path
 from datetime import datetime
-from flask import Flask, request, jsonify, Response
+from flask import Flask, request, jsonify, Response, send_file
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
@@ -239,6 +239,8 @@ def run_pipeline(job_id, prompt, caption, hashtags, product_id, dry_run, model, 
 
         jobs[job_id]["video_path"] = str(video_path)
         push_log(job_id, f"Saved → {video_path.name}", "success")
+        if job_id in job_queues:
+            job_queues[job_id].put({"video_ready": True})
 
         if dry_run:
             push_step(job_id, 3)
@@ -395,6 +397,7 @@ select option{background:#16162a}.row2{display:grid;grid-template-columns:1fr 1f
 </div>
 <div class="run-bar">
   <button class="run-btn" id="runBtn" onclick="runPipeline()">&#9654; Run Pipeline</button>
+  <button class="run-btn secondary" id="dlBtn" style="display:none;color:var(--cyan);border-color:rgba(87,255,196,0.3)" onclick="downloadVideo()">&#8595; Download Video</button>
   <button class="run-btn secondary" id="testBtn" onclick="testTikTok()">&#128248; Test TikTok Upload Only</button>
 </div>
 <script>
@@ -426,8 +429,9 @@ function setStatus(state,text){document.getElementById('statusPill').className='
 function copyLog(){const lines=[...document.getElementById('log').querySelectorAll('.log-line')].map(el=>el.textContent).join('\n');const btn=document.getElementById('copyLogBtn');function flash(){btn.textContent='copied!';btn.style.color='var(--cyan)';setTimeout(()=>{btn.textContent='copy';btn.style.color='';},2000);}if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(lines).then(flash).catch(()=>fallbackCopy(lines,flash));}else{fallbackCopy(lines,flash);}}
 function fallbackCopy(text,cb){const ta=document.createElement('textarea');ta.value=text;ta.style.cssText='position:fixed;top:-9999px;left:-9999px;';document.body.appendChild(ta);ta.focus();ta.select();try{document.execCommand('copy');cb();}catch(e){}document.body.removeChild(ta);}
 async function handleVideoFile(input){const file=input.files[0];if(!file)return;const label=document.getElementById('testVideoLabel');label.textContent='Uploading '+file.name+'...';const fd=new FormData();fd.append('file',file);try{const res=await fetch('/api/upload-test-video',{method:'POST',body:fd});const data=await res.json();if(data.ok){window._uploadedTestVideoPath=data.path;label.textContent='OK '+data.filename+' ready';label.style.color='var(--cyan)';}else{label.textContent='Failed: '+(data.error||'error');label.style.color='var(--red)';}}catch(e){label.textContent='Error: '+e.message;label.style.color='var(--red)';}}
-function streamJob(job_id,onDone){currentJobId=job_id;addLog(`Job: ${job_id}`,'accent');const evtSource=new EventSource(`/api/stream/${job_id}`);evtSource.onmessage=(e)=>{const entry=JSON.parse(e.data);if(entry.ping)return;if(entry.step!==undefined){setStep(entry.step);return;}if(entry.done){evtSource.close();onDone(!entry.error,entry.error);return;}if(entry.msg)addLog(entry.msg,entry.level||'info');};evtSource.onerror=()=>{evtSource.close();addLog('Connection lost','error');setStatus('error','error');onDone(false,'connection lost');};}
-async function runPipeline(){if(isRunning)return;const prompt=document.getElementById('prompt').value.trim();const caption=document.getElementById('caption').value.trim();if(!prompt){toast('Enter a prompt');return;}if(!caption){toast('Enter a caption');return;}isRunning=true;clearLog();resetSteps();setStatus('running','running');const btn=document.getElementById('runBtn');btn.textContent='Running...';btn.classList.add('running');btn.disabled=true;document.getElementById('testBtn').disabled=true;try{const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,caption,hashtags:[...hashtags],product_id:document.getElementById('productId').value.trim(),dry_run:document.getElementById('dryRun').checked,model:document.getElementById('model').value,duration:parseInt(document.getElementById('duration').value)})});const data=await res.json();if(data.error){addLog(data.error,'error');setStatus('error','error');finishRun(false);return;}streamJob(data.job_id,(success)=>{if(success){allDone();setStatus('done','done');setupScheduler();}else setStatus('error','error');finishRun(success);});}catch(err){addLog(`Error: ${err.message}`,'error');setStatus('error','error');finishRun(false);}}
+function streamJob(job_id,onDone){currentJobId=job_id;addLog(`Job: ${job_id}`,'accent');const evtSource=new EventSource(`/api/stream/${job_id}`);evtSource.onmessage=(e)=>{const entry=JSON.parse(e.data);if(entry.ping)return;if(entry.video_ready){document.getElementById('dlBtn').style.display='';return;}if(entry.step!==undefined){setStep(entry.step);return;}if(entry.done){evtSource.close();onDone(!entry.error,entry.error);return;}if(entry.msg)addLog(entry.msg,entry.level||'info');};evtSource.onerror=()=>{evtSource.close();addLog('Connection lost','error');setStatus('error','error');onDone(false,'connection lost');};}
+function downloadVideo(){if(!currentJobId)return;const a=document.createElement('a');a.href=`/api/download/${currentJobId}`;a.download='';document.body.appendChild(a);a.click();document.body.removeChild(a);}
+async function runPipeline(){if(isRunning)return;const prompt=document.getElementById('prompt').value.trim();const caption=document.getElementById('caption').value.trim();if(!prompt){toast('Enter a prompt');return;}if(!caption){toast('Enter a caption');return;}isRunning=true;clearLog();resetSteps();document.getElementById('dlBtn').style.display='none';setStatus('running','running');const btn=document.getElementById('runBtn');btn.textContent='Running...';btn.classList.add('running');btn.disabled=true;document.getElementById('testBtn').disabled=true;try{const res=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,caption,hashtags:[...hashtags],product_id:document.getElementById('productId').value.trim(),dry_run:document.getElementById('dryRun').checked,model:document.getElementById('model').value,duration:parseInt(document.getElementById('duration').value)})});const data=await res.json();if(data.error){addLog(data.error,'error');setStatus('error','error');finishRun(false);return;}streamJob(data.job_id,(success)=>{if(success){allDone();setStatus('done','done');setupScheduler();}else setStatus('error','error');finishRun(success);});}catch(err){addLog(`Error: ${err.message}`,'error');setStatus('error','error');finishRun(false);}}
 async function testTikTok(){if(isRunning)return;isRunning=true;clearLog();resetSteps();setStatus('running','testing');const btn=document.getElementById('testBtn');btn.textContent='Testing...';btn.disabled=true;document.getElementById('runBtn').disabled=true;addLog('TikTok-only test (skipping Sora)...','accent');try{const res=await fetch('/api/test-tiktok',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({caption:document.getElementById('caption').value.trim()||'Test post',hashtags:[...hashtags],product_id:document.getElementById('productId').value.trim(),custom_video_path:window._uploadedTestVideoPath||''})});const data=await res.json();if(data.error){addLog(data.error,'error');setStatus('error','error');finishTest(false);return;}streamJob(data.job_id,(success)=>{if(success){allDone();setStatus('done','done');}else setStatus('error','error');finishTest(success);});}catch(err){addLog(`Error: ${err.message}`,'error');setStatus('error','error');finishTest(false);}}
 function finishRun(success){isRunning=false;const btn=document.getElementById('runBtn');btn.classList.remove('running');btn.disabled=false;document.getElementById('testBtn').disabled=false;if(success){btn.classList.add('success-state');btn.textContent='Done - Run Again';setTimeout(()=>{btn.classList.remove('success-state');btn.textContent='&#9654; Run Pipeline';setStatus('idle','idle');},5000);}else btn.textContent='&#9654; Run Pipeline';}
 function finishTest(success){isRunning=false;const btn=document.getElementById('testBtn');btn.disabled=false;document.getElementById('runBtn').disabled=false;btn.textContent=success?'TikTok Test Passed!':'&#128248; Test TikTok Upload Only';if(success)setTimeout(()=>{btn.textContent='&#128248; Test TikTok Upload Only';setStatus('idle','idle');},5000);}
@@ -492,6 +496,16 @@ def api_job(job_id):
     j = jobs[job_id]
     return jsonify({"status": j["status"], "step": j.get("step", 0),
                     "error": j.get("error"), "has_video": j.get("video_path") is not None})
+
+@app.route("/api/download/<job_id>")
+def api_download(job_id):
+    if job_id not in jobs:
+        return jsonify({"error": "job not found"}), 404
+    video_path = jobs[job_id].get("video_path")
+    if not video_path or not Path(video_path).exists():
+        return jsonify({"error": "video not available"}), 404
+    p = Path(video_path)
+    return send_file(str(p), as_attachment=True, download_name=p.name, mimetype="video/mp4")
 
 @app.route("/api/upload-test-video", methods=["POST"])
 def upload_test_video():
